@@ -127,11 +127,13 @@ create table if not exists public.ingestion_state (
 insert into public.ingestion_state(key,next_page,complete,cycle_started_at)
 values('live_backfill',1,false,now()) on conflict(key) do nothing;
 
--- Automatically create a pending profile after auth signup.
+-- Automatically create an approved profile after auth signup. Admin approval is not required -
+-- anyone who signs up gets immediate access. 'pending' and 'suspended' remain valid statuses so an
+-- admin can still suspend an existing member later; they're just no longer the default for new signups.
 create or replace function public.handle_new_user() returns trigger language plpgsql security definer set search_path=public as $$
 begin
-  insert into public.profiles(id,email,outlet_name,contact_name)
-  values(new.id,coalesce(new.email,''),coalesce(new.raw_user_meta_data->>'outlet_name','Pending outlet'),new.raw_user_meta_data->>'contact_name')
+  insert into public.profiles(id,email,outlet_name,contact_name,status)
+  values(new.id,coalesce(new.email,''),coalesce(new.raw_user_meta_data->>'outlet_name','Pending outlet'),new.raw_user_meta_data->>'contact_name','approved')
   on conflict(id) do nothing;
   return new;
 end; $$;
