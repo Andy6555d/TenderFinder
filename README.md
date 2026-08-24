@@ -1,54 +1,106 @@
-# UH Tender Finder
+# UH Tender Finder v2
 
-A production-oriented Next.js/Supabase application for United Hardware / builders-merchant members. It scans **public eTenders notice pages**, keeps only opportunities whose official procurement type is **Supplies**, holds back notices that appear to include installation/works/services, scores merchant relevance, matches categories to member preferences, and gives each member a **private pricing workspace**.
+A Next.js/Supabase member tool for finding **public eTenders supply opportunities** that builders merchants can realistically price. Version 2 fixes the V1 ingestion problem where the app repeatedly scanned only the newest notices and therefore missed older-but-still-open opportunities.
+
+## What v2 fixes
+
+1. **Complete live-catalogue backfill** — the app now walks every page of eTenders' currently-live opportunity list using a persistent page cursor stored in Supabase.
+2. **Fast incremental discovery** — every hourly run still checks the newest 30 notices first so newly published tenders appear quickly.
+3. **No permanent timeout gaps** — a backfill page is advanced only after that complete page is safely processed or recognised as already stored.
+4. **Existing IDs are skipped before detail fetch** — the app no longer repeatedly downloads the same full tender pages every hour.
+5. **Small refresh queue** — previously relevant open notices are periodically refreshed for changed deadlines/status.
+6. **Context-aware supply classifier** — words such as `maintenance` no longer automatically reject a tender merely because goods are intended for maintenance staff/facilities. The app looks for actual supplier obligations such as `maintenance services`, `supply and installation`, `construction works`, etc.
+7. **No mandatory "supply" keyword** — if the official eTenders procurement type is `Supplies`, lack of the literal word `supply` no longer forces a valid opportunity into review.
+8. **Stronger CPV scoring** — structured CPV matches carry more weight than passing description keywords; title matches are stronger than description matches.
+9. **Expanded merchant taxonomy** — additional hardware, paint, PPE, electrical, plumbing and related CPV families are included.
+10. **Admin approve/reject override** — ambiguous tenders can be deliberately approved or rejected and the manual decision persists through rescans.
+11. **Reclassify stored tenders** — fixes stale scores/classifications created by V1, including irrelevant records that previously received an incorrect score.
+12. **Backfill health dashboard** — admin can see the reported live count, current page cursor, pages scanned, existing IDs skipped and refresh activity.
 
 ## Important boundary
 
-This app does **not** bypass eTenders authentication, association or tender-document controls. It reads public notice pages only. Where the official pricing schedule/RFT documents require an authorised eTenders login, the member downloads them from their own eTenders account and can upload the `.xlsx/.xls/.csv` pricing schedule into their private workspace here.
+The app reads **public eTenders notice pages only**. It does not automate eTenders login, association, CAPTCHA, protected document access or tender submission. Members download protected RFT/pricing documents from their own authorised eTenders account and can use the private pricing workspace here.
 
-The eTenders HTML structure is controlled by the eTenders platform and can change. The collector therefore logs every run, fails visibly, and does not invent missing fields. Always verify the official notice before bidding.
+---
 
-## What is included
+# UPGRADE AN EXISTING V1 INSTALLATION
 
-- Free member signup + administrator approval
-- Approved-member-only RLS access
-- Hourly Vercel cron ingestion
-- Public eTenders latest-notice discovery
-- Public tender detail parser
-- `Procurement Type = Supplies` hard gate
-- Supply-only/mixed classifier (mixed notices are hidden from members)
-- CPV + keyword merchant taxonomy and 0–100 relevance score
-- Category/search/relevance filters
-- Saved tenders
-- Member alert preferences
-- Optional hourly email alert via Resend
-- eTenders source link on every tender
-- Private per-user pricing sheets
-- XLSX/CSV pricing-schedule import in the browser
-- Cost / sell / gross-margin pricing workspace
-- Export completed pricing back to XLSX
-- Admin member approval/suspension
-- Admin ingestion run history
-- Admin mixed-notice review
-- Full Supabase schema + RLS + taxonomy seed
+If you already deployed the earlier version, **do this in this exact order**.
 
-## 1. Create Supabase project
+### 1. Back up Supabase
 
-Create a new Supabase project. In **SQL Editor**, paste and run the complete `supabase-schema.sql` file.
+Create a database backup/snapshot if your plan supports it. This migration is non-destructive, but you should always back up before schema changes.
 
-In Supabase Authentication settings, enable Email/Password sign-in. For a closed member service you can turn off public email confirmation if you want approval to be entirely controlled by the app administrator; otherwise keep confirmation enabled.
+### 2. Run the v2 migration
 
-## 2. Environment variables
+In Supabase → **SQL Editor**, open and run the complete file:
 
-Copy `.env.example` to `.env.local` and fill in:
+`supabase-migration-v2-ingestion-review.sql`
+
+Do **not** run `supabase-schema.sql` over an existing production database. The migration is the upgrade path.
+
+### 3. Deploy this v2 code
+
+Replace the existing GitHub project with the contents of this ZIP (or commit the changed files), then redeploy on Vercel.
+
+### 4. Open `/admin`
+
+You will now see:
+
+- **Run scan now**
+- **Reclassify stored tenders**
+- **Restart full backfill**
+- current backfill page
+- eTenders reported live count (when parsable)
+- review/override queue
+
+### 5. Click `Reclassify stored tenders` ONCE
+
+This recalculates every stored record using the new classifier and taxonomy without refetching eTenders. It is important because V1 may contain stale/incorrect scores such as an irrelevant vehicle tender.
+
+### 6. Click `Restart full backfill` ONCE
+
+This sets the live-catalogue cursor to page 1. It does **not** delete tenders.
+
+### 7. Click `Run scan now`
+
+The first run will:
+
+- check newest notices;
+- process the next pages of the full live catalogue;
+- store new tenders;
+- skip already-known IDs without downloading their full detail page;
+- update the cursor.
+
+After that, the existing hourly Vercel cron continues the backfill automatically. With roughly 10 results per eTenders page and up to 3 backfill pages per hourly run, a catalogue of a few thousand live opportunities takes several days to complete automatically. You may press **Run scan now** manually between cron runs if you want to accelerate it, while still keeping request volume conservative.
+
+**Do not expect every eTenders notice to appear to members.** The backfill scans the complete live catalogue, but the member feed remains filtered to relevant `Supplies` opportunities.
+
+---
+
+# NEW INSTALLATION
+
+### 1. Create a Supabase project
+
+Run the entire:
+
+`supabase-schema.sql`
+
+in Supabase SQL Editor.
+
+Enable Email/Password auth.
+
+### 2. Environment variables
+
+Copy `.env.example` to `.env.local` locally, and add the same variables in Vercel:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
-CRON_SECRET=use-a-long-random-secret
-NEXT_PUBLIC_SITE_URL=http://localhost:3000
-ETENDERS_USER_AGENT=UH-Tender-Finder/1.0 (contact: your-real-contact@example.ie)
+CRON_SECRET=...
+NEXT_PUBLIC_SITE_URL=https://YOUR-DOMAIN
+ETENDERS_USER_AGENT=UH-Tender-Finder/2.0 (contact: your-real-contact@example.ie)
 ```
 
 Optional email alerts:
@@ -58,145 +110,203 @@ RESEND_API_KEY=re_...
 ALERT_FROM_EMAIL=UH Tender Finder <tenders@your-domain.ie>
 ```
 
-Never put `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET` or `RESEND_API_KEY` in client-side code or Git.
+Never commit secrets to Git.
 
-## 3. Install and run
+### 3. Install/run locally
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+### 4. Create first admin
 
-## 4. Create first administrator
-
-1. Use **Request access** to create your own account.
-2. In Supabase SQL Editor run:
+Create your account through the app, then run:
 
 ```sql
 update public.profiles
 set status='approved', is_admin=true
-where email='your-email@example.ie';
+where email='YOUR_EMAIL';
 ```
 
-3. Log out/in and open `/admin`.
+Log out/in, then open `/admin`.
 
-## 5. Test ingestion manually
+---
 
-From `/admin`, press **Run eTenders scan now**.
+# How ingestion works now
 
-The app fetches the public search page:
+Each hourly cron has three lanes:
 
-`https://www.etenders.gov.ie/epps/quickSearchAction.do?searchType=cftFTS`
+## A. Incremental lane
 
-It discovers public `resourceId` links, fetches each public `prepareViewCfTWS.do?resourceId=...` notice and stores structured fields. Check **Ingestion runs** in admin.
+Checks approximately the newest 30 public notices immediately.
 
-If eTenders changes its HTML structure the run will expose failures instead of silently fabricating data. The only file normally requiring parser maintenance is `lib/etenders.ts`.
+Before fetching full notice details, the app checks whether each `resource_id` already exists. Known IDs are skipped, so the hourly job does not waste most of its time re-downloading the same notices.
 
-## 6. Supply-only rules
+## B. Persistent full backfill
 
-A notice must pass **both** layers before members see it:
+Supabase table `ingestion_state` stores a `next_page` cursor. The app walks currently-live eTenders pages sequentially.
 
-1. eTenders `Procurement Type` must equal `Supplies`.
-2. The public title/description must not contain obvious works/service terms such as installation, maintenance, repair, refurbishment works or design-and-build.
+Example:
 
-Ambiguous supply notices are stored as `mixed` and are visible only in the admin review table. This is deliberately conservative because the product goal is to avoid wasting member time.
+- Run 1: pages 1–3
+- Run 2: pages 4–6
+- Run 3: pages 7–9
+- ...
 
-## 7. Merchant relevance
+If Vercel's time budget is reached halfway through a page, that page is **not** advanced. The next run retries it. This prevents the old permanent-gap problem.
 
-`tender_taxonomy` contains editable CPV-prefix and keyword rules seeded for:
+When the end of the current-live list is reached, `complete=true`. New tenders are still caught by the incremental lane.
 
-- Building Materials
-- Timber
-- Insulation
-- Plumbing
-- Heating
-- Bathrooms & Sanitaryware
-- Drainage & Civils
-- Roofing
-- Doors & Ironmongery
-- Hardware & Fixings
-- Tools
-- Paint & Decorating
-- PPE & Workwear
-- Landscaping
-- Electrical & Lighting
-- General Merchant
+If you deliberately want to re-walk the whole current catalogue later, use **Restart full backfill**.
 
-The current build intentionally keeps these rules in Supabase rather than hard-coding the final taxonomy. Adjust/add rules after observing real notices.
+## C. Refresh lane
 
-## 8. Pricing workflow
+A small number of stored, relevant, open tenders that have not been checked for at least 24 hours are refreshed. This is deliberately bounded so the app does not hammer eTenders.
 
-For a relevant tender:
+The dashboard also hides tenders whose stored deadline has already passed even if a refresh has not yet occurred.
 
-1. Member opens the tender summary.
-2. Member clicks **Open official eTenders notice**.
-3. If tender documents require association/login, member uses their own authorised eTenders account.
-4. Member downloads the official pricing schedule.
-5. Back in Tender Finder, click **Create pricing sheet**.
-6. Upload `.xlsx`, `.xls` or `.csv`.
-7. The first sheet is read client-side. Column 1 is treated as description, 2 as quantity, 3 as unit after the detected heading row.
-8. Member can fill own SKU, cost, sell and notes.
-9. Gross margin is calculated.
-10. Export completed pricing to XLSX.
+---
 
-Pricing RLS is deliberately user-private: a member can only see their own `pricing_sheets` and `pricing_lines`. Do not weaken these policies for group-wide price sharing; independent member bid prices should stay private.
+# Supply-only classification v2
 
-## 9. Deploy to Vercel
+The official eTenders `Procurement Type` must still be **Supplies**. That remains the hard gate.
 
-Push this repository to a **private** GitHub repository, then import it into Vercel.
+V1 then rejected any description containing words such as `maintenance`, `repair` or `installation`, which created false negatives. For example, goods "for maintenance staff" are still goods.
 
-Add every production environment variable from `.env.example`. Change:
+V2 instead looks for actual supplier obligations such as:
 
-```bash
-NEXT_PUBLIC_SITE_URL=https://your-production-domain.ie
+- supply and installation;
+- supply and fit;
+- installation services/works;
+- supplier/contractor must install;
+- maintenance services/contracts;
+- repair services;
+- service and maintenance;
+- construction/building/refurbishment works;
+- labour and materials;
+- design and build;
+- installation and commissioning.
+
+A clear obligation becomes **Mixed / Review** rather than automatically visible.
+
+Ordinary contextual wording such as:
+
+- maintenance staff;
+- maintenance department;
+- for maintenance;
+- maintenance facilities;
+- maintenance supplies;
+
+no longer causes rejection by itself.
+
+---
+
+# Relevance scoring v2
+
+The scoring order is intentionally:
+
+1. **Relevant CPV family** — strongest structured evidence.
+2. **Relevant wording in title** — strong evidence.
+3. **Relevant wording in description** — supporting evidence.
+4. Negative/irrelevant keywords reduce confidence.
+
+The score is no longer a simple unlimited sum of every word found in a long description. The strongest category drives most of the 0–100 score and secondary categories add limited supporting confidence.
+
+Default member threshold remains **20+**. Adjust only after looking at real false positives/negatives.
+
+---
+
+# Admin review
+
+A mixed tender is not shown to ordinary members unless an administrator chooses **Approve**.
+
+- **Approve**: makes it member-visible and ensures at least the default 20 relevance score.
+- **Reject**: explicitly hides it, even if a future automatic scan would otherwise classify it eligible.
+- **Auto**: removes the override and returns the tender to automatic classifier behaviour.
+
+Manual override lives in separate columns, so rescans do not erase the decision.
+
+---
+
+# Diagnosing ingestion
+
+Use `/admin` first. Important columns are:
+
+- eTenders live count
+- Found
+- New
+- Existing skipped
+- Refreshed
+- Eligible
+- Mixed
+- Backfill pages
+- Cursor
+- Failed
+
+Useful SQL:
+
+```sql
+select *
+from public.ingestion_state
+where key='live_backfill';
 ```
 
-`vercel.json` runs `/api/cron/ingest` hourly at minute 15. Vercel Cron sends the production `CRON_SECRET` in the Authorization header when configured according to Vercel's cron security behaviour. If you invoke the route manually, send:
-
-```http
-Authorization: Bearer YOUR_CRON_SECRET
+```sql
+select
+  started_at, reported_live_count, discovered, inserted,
+  skipped_existing, refreshed, eligible, mixed,
+  pages_scanned, cursor_start, cursor_end, failed, errors
+from public.ingest_runs
+order by started_at desc
+limit 20;
 ```
 
-## 10. Email alerts
+```sql
+select
+  resource_id, title, procurement_type, cpv_codes,
+  relevance_score, categories, supply_only_status,
+  admin_override, supply_only_reason, classifier_version,
+  published_at, deadline_at, first_seen_at, last_seen_at
+from public.tenders
+order by first_seen_at desc;
+```
 
-If `RESEND_API_KEY` is not supplied, ingestion still works and no email is sent. If configured, after each hourly scan members with matching categories receive a short list of newly seen eligible opportunities.
+If the cursor advances, new rows are being inserted and `Existing skipped` rises on repeated scans, the two-lane crawler is behaving as intended.
 
-Set a verified sending domain in Resend before production use.
+---
 
-## 11. Recommended launch test
+# Private pricing
 
-Before all members see it, approve 5–10 test accounts and validate at least 50 real notices:
+Pricing remains strictly per-user through RLS. Members can upload an official `.xlsx/.xls/.csv` pricing schedule obtained through their own eTenders access, add private SKU/cost/sell/notes and export a priced XLSX.
 
-- true supply contracts appear;
-- works/services are absent;
-- mixed `supply + install` contracts stay in admin;
-- CPV/category matches are sensible;
-- deadlines and values match eTenders exactly;
-- official source link opens the correct notice;
-- pricing sheet is private between two separate test members;
-- suspended/pending users cannot read tenders;
-- cron failures are visible in `ingest_runs`.
+Do not weaken pricing RLS or create group-wide bid-price sharing between independent bidders.
 
-Tune `tender_taxonomy` and `MIXED_TERMS` in `lib/relevance.ts` from real false positives/negatives. Do not loosen the hard `Procurement Type = Supplies` gate for this member product.
+---
 
-## 12. What I would add only after real usage
+# Deployment
 
-Do not overbuild before members use it. The strongest later additions are:
+Keep the GitHub repository **private**. Deploy through Vercel.
 
-- direct XLSX layout mapping wizard for unusual pricing schedules;
-- tender-document summarisation from member-uploaded RFT PDFs;
-- member-specific county/contract-value preferences;
-- central opportunity analytics (views/saves/pricing started) without exposing private prices;
-- tender award/result follow-up;
-- procurement-calendar/history insights;
-- optional supplier/SKU matching against a member's own catalogue.
+`vercel.json` calls:
 
-## Legal/operational notes
+`/api/cron/ingest`
 
-- The app is an opportunity-discovery and private-pricing aid, not legal/procurement advice.
-- The official eTenders notice/documents always control.
-- Use a real contact address in `ETENDERS_USER_AGENT` and keep scan frequency reasonable.
-- Do not automate logins, CAPTCHA, protected tender document access, submissions, or association actions.
-- Confirm eTenders/European Dynamics terms and robots/access expectations before broad production scraping. If an official supported feed/API becomes available, replace the HTML collector while keeping the rest of the application unchanged.
+hourly at minute 15.
+
+The route requires `Authorization: Bearer CRON_SECRET` when the secret is configured.
+
+---
+
+# Recommended validation after upgrade
+
+After migration/reclassification/backfill starts:
+
+1. Verify the previously irrelevant flatbed/vehicle record is no longer in the normal member feed unless it genuinely matches a merchant category.
+2. Search admin/database for known hardware/tools/paint/workwear supply opportunities.
+3. Review at least 50 automatic decisions.
+4. Approve legitimate ambiguous supply tenders from Admin rather than weakening the classifier globally.
+5. Check source values/deadlines against official eTenders notices.
+6. Test with two separate member accounts to confirm pricing isolation.
+
+The objective is **not** to show hundreds of tenders. It is to scan the whole live universe and show a clean set of genuinely priceable merchant supply opportunities.

@@ -20,6 +20,11 @@ export type Tender = {
   categories: string[]
   supply_only_status: 'eligible' | 'mixed' | 'excluded'
   supply_only_reason: string | null
+  admin_override: 'none' | 'approve' | 'reject'
+  admin_review_note: string | null
+  admin_reviewed_at: string | null
+  classifier_version: string | null
+  last_classified_at: string | null
   status: 'open' | 'closed' | 'unknown'
   first_seen_at: string
   last_seen_at: string

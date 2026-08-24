@@ -1,79 +1,141 @@
 import type { TaxonomyRule } from '@/lib/types'
 
-const MIXED_TERMS = [
-  'installation', 'install and', 'supply and install', 'supply, delivery and installation',
-  'maintenance', 'repair', 'servicing', 'construction works', 'building works', 'refurbishment works',
-  'design and build', 'fit-out', 'fit out', 'fitting works', 'labour', 'contractor to install'
+export const CLASSIFIER_VERSION = 'v2_context_aware_supply_relevance'
+
+// Strong evidence that the supplier is expected to perform works/services rather than merely
+// deliver goods. These phrases are deliberately obligation-focused. Generic references such as
+// "maintenance staff", "for maintenance" or "maintenance facility" are NOT treated as mixed.
+const STRONG_MIXED_PATTERNS: { label: string; regex: RegExp }[] = [
+  { label: 'supply and installation', regex: /\bsupply(?:,|\s)+(?:and\s+)?(?:delivery(?:,|\s)+(?:and\s+)?)?(?:full\s+)?installation\b/i },
+  { label: 'supply and install', regex: /\bsupply(?:,|\s)+(?:and\s+)?install\b/i },
+  { label: 'supply and fit', regex: /\bsupply(?:,|\s)+(?:and\s+)?fit(?:ting)?\b/i },
+  { label: 'design, supply and install', regex: /\bdesign(?:,|\s)+(?:and\s+)?supply(?:,|\s)+(?:and\s+)?install/i },
+  { label: 'installation included', regex: /\b(?:including|includes|inclusive of|with)\s+(?:the\s+)?installation\b/i },
+  { label: 'installation services', regex: /\binstallation\s+(?:services?|works?|contract)\b/i },
+  { label: 'supplier/contractor must install', regex: /\b(?:supplier|contractor|tenderer)\s+(?:shall|must|will|is required to)\s+.{0,45}\binstall/i },
+  { label: 'maintenance services', regex: /\b(?:planned|preventative|preventive|reactive|ongoing|annual|routine)?\s*maintenance\s+(?:services?|contract|works?)\b/i },
+  { label: 'service and maintenance', regex: /\b(?:service|servicing)\s+(?:and|&)\s+maintenance\b/i },
+  { label: 'repair services', regex: /\brepair\s+(?:services?|works?|contract)\b/i },
+  { label: 'servicing services', regex: /\bservicing\s+(?:services?|contract|works?)\b/i },
+  { label: 'construction works', regex: /\bconstruction\s+works?\b/i },
+  { label: 'building works', regex: /\bbuilding\s+works?\b/i },
+  { label: 'refurbishment works', regex: /\brefurbishment\s+works?\b/i },
+  { label: 'fit-out works', regex: /\bfit[ -]?out\s+works?\b/i },
+  { label: 'labour and materials', regex: /\blabou?r\s+(?:and|&)\s+materials\b/i },
+  { label: 'design and build', regex: /\bdesign\s+(?:and|&)\s+build\b/i },
+  { label: 'works contract', regex: /\bworks\s+contract\b/i },
+  { label: 'commissioning services', regex: /\bcommissioning\s+(?:services?|works?|contract)\b/i },
+  { label: 'installation and commissioning', regex: /\binstallation\s+(?:and|&)\s+commissioning\b/i }
 ]
 
-const SAFE_SUPPLY_TERMS = ['supply', 'supply and delivery', 'delivery of', 'purchase of', 'framework for the supply']
-
-// Phrases that, when found shortly before a MIXED_TERMS hit, mean the notice is
-// explicitly ruling the works/service element OUT rather than including it, e.g.
-// "excluding installation", "does not include maintenance", "no repair works required".
-// Without this, wording like that would wrongly get held back as "mixed".
-const NEGATION_CUES = [
-  'excluding', 'exclude', 'exclusive of', 'does not include', 'do not include', 'not including',
-  'without', 'no requirement for', 'not required to provide', 'except for', 'other than'
+const SAFE_CONTEXT_PATTERNS: RegExp[] = [
+  /\bmaintenance\s+(?:staff|team|department|personnel|crew|facility|facilities|workshop|workshops|stores?)\b/i,
+  /\bfor\s+(?:use\s+in\s+)?maintenance\b/i,
+  /\bused\s+(?:by|for|in)\s+.{0,30}\bmaintenance\b/i,
+  /\bmaintenance\s+consumables?\b/i,
+  /\bmaintenance\s+supplies?\b/i
 ]
-const NEGATION_WINDOW = 40 // characters to look back before a mixed-term hit
 
-function isNegatedOccurrence(text: string, matchStart: number) {
-  const windowStart = Math.max(0, matchStart - NEGATION_WINDOW)
-  const before = text.slice(windowStart, matchStart)
-  return NEGATION_CUES.some(cue => before.includes(cue))
+const NEGATION_PREFIX = /(?:excluding|exclude|does not include|do not include|not including|without|no requirement for|not required to provide|no\s+)/i
+
+function isNegated(text: string, index: number) {
+  const before = text.slice(Math.max(0, index - 55), index)
+  return NEGATION_PREFIX.test(before)
 }
 
-// Finds every occurrence of `term` in `text` and returns the ones NOT preceded by a negation cue.
-// A term can appear both negated ("excluding installation") and un-negated elsewhere in the same
-// notice, so this checks each occurrence individually rather than the term as a whole.
-function findUnnegatedOccurrence(text: string, term: string) {
-  let from = 0
-  while (true) {
-    const idx = text.indexOf(term, from)
-    if (idx < 0) return null
-    if (!isNegatedOccurrence(text, idx)) return idx
-    from = idx + term.length
+function hasStrongMixedObligation(title: string, description: string | null) {
+  const text = `${title}\n${description || ''}`
+  for (const { label, regex } of STRONG_MIXED_PATTERNS) {
+    const m = regex.exec(text)
+    if (!m || m.index == null) continue
+    if (isNegated(text, m.index)) continue
+    const matched = m[0]
+    // Avoid false positives where the only relevant word is descriptive context such as
+    // "maintenance staff" or "for maintenance" rather than a supplier obligation.
+    if (/maintenance/i.test(matched) && SAFE_CONTEXT_PATTERNS.some(p => p.test(text))) {
+      const withoutSafe = SAFE_CONTEXT_PATTERNS.reduce((s, p) => s.replace(p, ' '), text)
+      if (!regex.test(withoutSafe)) continue
+    }
+    return label
   }
+  return null
 }
 
 export function classifySupplyOnly(title: string, description: string | null, procurementType: string | null) {
-  const text = `${title} ${description || ''}`.toLowerCase()
-  if ((procurementType || '').toLowerCase() !== 'supplies') {
-    return { status: 'excluded' as const, reason: `Procurement Type is ${procurementType || 'not stated'}, not Supplies.` }
-  }
-  for (const term of MIXED_TERMS) {
-    const idx = findUnnegatedOccurrence(text, term)
-    if (idx !== null) {
-      return { status: 'mixed' as const, reason: `Possible works/services content detected: "${term}".` }
+  const type = (procurementType || '').trim().toLowerCase()
+  if (type !== 'supplies') {
+    return {
+      status: 'excluded' as const,
+      reason: `Procurement Type is ${procurementType || 'not stated'}, not Supplies.`
     }
   }
-  if (!SAFE_SUPPLY_TERMS.some(t => text.includes(t))) {
-    return { status: 'mixed' as const, reason: 'Classified as Supplies by eTenders, but supply-only wording is not clear enough for automatic member release.' }
+
+  const mixed = hasStrongMixedObligation(title, description)
+  if (mixed) {
+    return {
+      status: 'mixed' as const,
+      reason: `Possible supplier works/services obligation detected: ${mixed}. Admin review recommended.`
+    }
   }
-  return { status: 'eligible' as const, reason: 'eTenders classifies this as Supplies and no installation/works/service wording was detected.' }
+
+  return {
+    status: 'eligible' as const,
+    reason: 'eTenders classifies this as Supplies and no clear supplier installation/works/service obligation was detected.'
+  }
+}
+
+function keywordMatch(text: string, value: string) {
+  return text.includes(value)
 }
 
 export function scoreTender(title: string, description: string | null, cpvCodes: string[], rules: TaxonomyRule[]) {
-  const text = `${title} ${description || ''}`.toLowerCase()
-  const categories = new Map<string, number>()
-  let raw = 0
-  let excluded = 0
+  const titleText = title.toLowerCase()
+  const descriptionText = (description || '').toLowerCase()
+  const categoryScores = new Map<string, number>()
+  let exclusionPenalty = 0
+
   for (const rule of rules.filter(r => r.active !== false)) {
     const value = rule.value.toLowerCase().trim()
-    let matched = false
-    if (rule.rule_type === 'cpv_prefix') matched = cpvCodes.some(code => code.replace(/\D/g, '').startsWith(value.replace(/\D/g, '')))
-    else matched = text.includes(value)
-    if (!matched) continue
-    if (rule.rule_type === 'exclude_keyword') { excluded += Math.abs(rule.weight || 30); continue }
-    const w = Math.max(1, rule.weight || 10)
-    raw += w
-    categories.set(rule.category, (categories.get(rule.category) || 0) + w)
+    if (!value) continue
+    const baseWeight = Math.max(1, Math.abs(rule.weight || 10))
+
+    if (rule.rule_type === 'cpv_prefix') {
+      const normalized = value.replace(/\D/g, '')
+      const matched = cpvCodes.some(code => code.replace(/\D/g, '').startsWith(normalized))
+      if (!matched) continue
+      // CPVs are authoritative structured evidence, so give them more weight than free text.
+      const score = Math.round(baseWeight * 1.5)
+      categoryScores.set(rule.category, (categoryScores.get(rule.category) || 0) + score)
+      continue
+    }
+
+    const titleMatched = keywordMatch(titleText, value)
+    const descriptionMatched = keywordMatch(descriptionText, value)
+    if (!titleMatched && !descriptionMatched) continue
+
+    if (rule.rule_type === 'exclude_keyword') {
+      exclusionPenalty += Math.round(baseWeight * (titleMatched ? 1.4 : 0.8))
+      continue
+    }
+
+    // A relevant word in the title is far stronger than a passing mention in a long description.
+    const score = Math.round(baseWeight * (titleMatched ? 1.4 : 0.75))
+    categoryScores.set(rule.category, (categoryScores.get(rule.category) || 0) + score)
   }
-  raw = Math.max(0, raw - excluded)
-  const score = Math.min(100, raw)
+
+  const ranked = [...categoryScores.entries()]
+    .map(([category, score]) => [category, Math.min(70, score)] as const)
+    .sort((a, b) => b[1] - a[1])
+
+  // Prevent keyword-rich descriptions from reaching 100 simply by mentioning many unrelated
+  // merchant words. The strongest category carries most of the score; secondary categories add
+  // supporting confidence only.
+  const strongest = ranked[0]?.[1] || 0
+  const secondary = ranked.slice(1, 4).reduce((sum, [, score]) => sum + score * 0.22, 0)
+  const score = Math.max(0, Math.min(100, Math.round(strongest + secondary - exclusionPenalty)))
+
   return {
     score,
-    categories: [...categories.entries()].sort((a,b) => b[1]-a[1]).map(([c]) => c).slice(0, 6)
+    categories: ranked.filter(([, s]) => s >= 10).slice(0, 6).map(([category]) => category)
   }
 }

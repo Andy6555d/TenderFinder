@@ -11,7 +11,8 @@ export default async function Page({ searchParams }: { searchParams: { q?: strin
     .from('tenders')
     .select('*')
     .eq('status', 'open')
-    .eq('supply_only_status', 'eligible')
+    .neq('admin_override', 'reject')
+    .or('supply_only_status.eq.eligible,admin_override.eq.approve')
     .gte('relevance_score', Number(searchParams.min || profile.min_relevance_score || 20))
     // Guard against a stale 'open' status: a tender whose deadline has passed since it was last
     // scanned should never show as live here, even if the stored status hasn't caught up yet.
