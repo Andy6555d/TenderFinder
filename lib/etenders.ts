@@ -18,16 +18,16 @@ const LABELS = [
   'Date of Awarding:', 'Contract Award Date:', 'Date Accepted by Contractor:'
 ]
 
-const REQUEST_DELAY_MS = 550
-const RETRY_DELAY_MS = 1400
 const MAX_ATTEMPTS = 2
+const RETRY_DELAY_MS = 900
 const PAGE_PARAM = 'd-3680175-p'
 const RESULTS_PER_PAGE = 10
-const TIME_BUDGET_MS = 48_000
-const INCREMENTAL_LIMIT = 30
-const BACKFILL_PAGES_PER_RUN = 3
-const REFRESH_PER_RUN = 5
+const INCREMENTAL_PAGES = 5
+const REFRESH_PER_RUN = 8
 const REFRESH_AFTER_HOURS = 24
+const FAST_SEARCH_CONCURRENCY = Math.max(4, Number(process.env.ETENDERS_SEARCH_CONCURRENCY || 14))
+const FAST_DETAIL_CONCURRENCY = Math.max(3, Number(process.env.ETENDERS_DETAIL_CONCURRENCY || 8))
+const FAST_PREFILTER_SCORE = Math.max(1, Number(process.env.ETENDERS_PREFILTER_SCORE || 8))
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -88,7 +88,7 @@ async function fetchWithRetry(url: string, cookie?: string | null) {
       const response = await fetch(url, {
         cache: 'no-store',
         headers: {
-          'User-Agent': process.env.ETENDERS_USER_AGENT || 'UH-Tender-Finder/2.0',
+          'User-Agent': process.env.ETENDERS_USER_AGENT || 'UH-Tender-Finder/3.0',
           ...(cookie ? { Cookie: cookie } : {})
         }
       })
@@ -127,6 +127,7 @@ function extractResourceIds(html: string) {
 function parseReportedLiveCount(html: string) {
   const text = cheerio.load(html)('body').text().replace(/\s+/g, ' ')
   const patterns = [
+    /(?:showing|displaying)\s*:?\s*\d+\s*(?:to|-)\s*\d+\s*\|?\s*([\d,]+)\s+results\s+in\s+total/i,
     /(?:showing|displaying)\s+\d+\s+(?:to|-)\s+\d+\s+of\s+([\d,]+)/i,
     /\bof\s+([\d,]+)\s+(?:results|items|records|entries|opportunities)\b/i,
     /\b([\d,]+)\s+(?:results|opportunities)\b/i
@@ -148,6 +149,14 @@ type SearchSession = {
   reportedCount: number | null
 }
 
+type SearchSummary = {
+  resourceId: string
+  title: string
+  authority: string | null
+  info: string
+  rowText: string
+}
+
 async function startSearchSession(): Promise<SearchSession> {
   const response = await fetchWithRetry(ETENDERS_SEARCH_URL)
   const html = await response.text()
@@ -162,25 +171,65 @@ async function startSearchSession(): Promise<SearchSession> {
 async function fetchSearchPage(session: SearchSession, page: number) {
   if (page === 1) return { ids: session.page1Ids, html: session.page1Html }
   const response = await fetchWithRetry(`${ETENDERS_SEARCH_URL}&${PAGE_PARAM}=${page}`, session.cookie)
-  const newCookie = extractCookieHeader(response)
-  if (newCookie) session.cookie = newCookie
   const html = await response.text()
   const ids = extractResourceIds(html)
   if (ids.length && session.page1Ids.length && ids.join(',') === session.page1Ids.join(',')) {
-    throw new Error(`eTenders pagination reset to page 1 while requesting page ${page}; backfill cursor was not advanced.`)
+    throw new Error(`eTenders pagination reset to page 1 while requesting page ${page}.`)
   }
   return { ids, html }
 }
 
-async function discoverNewest(session: SearchSession, limit = INCREMENTAL_LIMIT) {
-  const ids: string[] = []
-  const pages = Math.max(1, Math.ceil(limit / RESULTS_PER_PAGE))
-  for (let page = 1; page <= pages && ids.length < limit; page++) {
-    const { ids: pageIds } = await fetchSearchPage(session, page)
-    for (const id of pageIds) if (!ids.includes(id)) ids.push(id)
-    if (page < pages) await sleep(REQUEST_DELAY_MS)
+function extractSearchSummaries(html: string): SearchSummary[] {
+  const $ = cheerio.load(html)
+  const out: SearchSummary[] = []
+
+  $('tr').each((_, row) => {
+    const $row = $(row)
+    const link = $row.find('a[href*="prepareViewCfTWS.do"]').first()
+    if (!link.length) return
+    const href = link.attr('href') || ''
+    const resourceId = href.match(/resourceId=(\d+)/)?.[1]
+    if (!resourceId) return
+    const cells = $row.find('td').map((__, td) => $(td).text().replace(/\s+/g, ' ').trim()).get()
+    const title = link.text().replace(/\s+/g, ' ').trim() || cells[1] || `eTenders ${resourceId}`
+    const rowText = cells.join(' | ')
+    // Current eTenders layout: #, Title, Resource ID, CA, Info, Date, Deadline, Procedure, ...
+    const authority = cells[3] || null
+    const info = cells[4] || rowText
+    out.push({ resourceId, title, authority, info, rowText })
+  })
+
+  if (!out.length) {
+    $('a[href*="prepareViewCfTWS.do"]').each((_, el) => {
+      const href = $(el).attr('href') || ''
+      const resourceId = href.match(/resourceId=(\d+)/)?.[1]
+      if (!resourceId || out.some(x => x.resourceId === resourceId)) return
+      const title = $(el).text().replace(/\s+/g, ' ').trim() || `eTenders ${resourceId}`
+      const parentText = $(el).closest('tr,li,div').text().replace(/\s+/g, ' ').trim()
+      out.push({ resourceId, title, authority: null, info: parentText, rowText: parentText })
+    })
   }
-  return ids.slice(0, limit)
+  return out
+}
+
+async function mapConcurrent<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  if (!items.length) return []
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (true) {
+      const index = cursor++
+      if (index >= items.length) break
+      results[index] = await fn(items[index], index)
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+function candidateFromSummary(summary: SearchSummary, rules: TaxonomyRule[]) {
+  const scored = scoreTender(summary.title, summary.info, [], rules)
+  return { ...summary, preScore: scored.score, preCategories: scored.categories }
 }
 
 export async function fetchTender(resourceId: string, rules: TaxonomyRule[]) {
@@ -232,6 +281,7 @@ export async function fetchTender(resourceId: string, rules: TaxonomyRule[]) {
 
 type Counters = {
   discovered: number
+  candidates: number
   inserted: number
   updated: number
   eligible: number
@@ -243,56 +293,20 @@ type Counters = {
 }
 
 function blankCounters(): Counters {
-  return { discovered: 0, inserted: 0, updated: 0, eligible: 0, mixed: 0, failed: 0, skipped_existing: 0, refreshed: 0, errors: [] }
-}
-
-function mergeCounters(into: Counters, from: Counters) {
-  for (const key of ['discovered', 'inserted', 'updated', 'eligible', 'mixed', 'failed', 'skipped_existing', 'refreshed'] as const) into[key] += from[key]
-  into.errors.push(...from.errors)
+  return { discovered: 0, candidates: 0, inserted: 0, updated: 0, eligible: 0, mixed: 0, failed: 0, skipped_existing: 0, refreshed: 0, errors: [] }
 }
 
 async function existingMap(ids: string[]) {
-  if (!ids.length) return new Map<string, { id: string; last_seen_at: string | null }>()
   const admin = createAdminClient()
-  const { data, error } = await admin.from('tenders').select('id,resource_id,last_seen_at').in('resource_id', ids)
-  if (error) throw error
-  return new Map((data || []).map(row => [row.resource_id, { id: row.id, last_seen_at: row.last_seen_at }]))
-}
-
-async function processIds(ids: string[], rules: TaxonomyRule[], runStartedMs: number, forceRefresh = false) {
-  const admin = createAdminClient()
-  const counters = blankCounters()
-  counters.discovered = ids.length
-  const existing = await existingMap(ids)
-
-  for (let i = 0; i < ids.length; i++) {
-    if (Date.now() - runStartedMs > TIME_BUDGET_MS) {
-      counters.errors.push(`Time budget reached with ${ids.length - i} notice(s) left in this batch. Cursor was not advanced past an incomplete backfill page.`)
-      return { counters, completed: false }
-    }
-    const id = ids[i]
-    const prev = existing.get(id)
-    if (prev && !forceRefresh) {
-      counters.skipped_existing++
-      continue
-    }
-    try {
-      const tender = await fetchTender(id, rules)
-      const { error } = await admin.from('tenders').upsert(tender, { onConflict: 'resource_id' })
-      if (error) throw error
-      if (prev) {
-        counters.updated++
-        if (forceRefresh) counters.refreshed++
-      } else counters.inserted++
-      if (tender.supply_only_status === 'eligible' && tender.relevance_score >= 20) counters.eligible++
-      if (tender.supply_only_status === 'mixed') counters.mixed++
-    } catch (error) {
-      counters.failed++
-      counters.errors.push(`${id}: ${error instanceof Error ? error.message : String(error)}`)
-    }
-    if (i < ids.length - 1) await sleep(REQUEST_DELAY_MS)
+  const map = new Map<string, { id: string; last_seen_at: string | null }>()
+  for (let i = 0; i < ids.length; i += 150) {
+    const chunk = ids.slice(i, i + 150)
+    if (!chunk.length) continue
+    const { data, error } = await admin.from('tenders').select('id,resource_id,last_seen_at').in('resource_id', chunk)
+    if (error) throw error
+    for (const row of data || []) map.set(row.resource_id, { id: row.id, last_seen_at: row.last_seen_at })
   }
-  return { counters, completed: true }
+  return map
 }
 
 async function loadRules() {
@@ -302,147 +316,71 @@ async function loadRules() {
   return (data || []) as TaxonomyRule[]
 }
 
+async function upsertTenderBatch(tenders: any[], existing: Map<string, { id: string; last_seen_at: string | null }>, counters: Counters, forceRefresh: boolean) {
+  const admin = createAdminClient()
+  for (let i = 0; i < tenders.length; i += 50) {
+    const batch = tenders.slice(i, i + 50)
+    if (!batch.length) continue
+    const { error } = await admin.from('tenders').upsert(batch, { onConflict: 'resource_id' })
+    if (error) throw error
+    for (const tender of batch) {
+      if (existing.has(tender.resource_id)) {
+        counters.updated++
+        if (forceRefresh) counters.refreshed++
+      } else counters.inserted++
+      if (tender.supply_only_status === 'eligible' && tender.relevance_score >= 20) counters.eligible++
+      if (tender.supply_only_status === 'mixed') counters.mixed++
+    }
+  }
+}
+
+async function processIdsConcurrent(ids: string[], rules: TaxonomyRule[], options?: { forceRefresh?: boolean; concurrency?: number }) {
+  const counters = blankCounters()
+  counters.discovered = ids.length
+  const existing = await existingMap(ids)
+  const forceRefresh = !!options?.forceRefresh
+  const wanted = forceRefresh ? ids : ids.filter(id => !existing.has(id))
+  counters.skipped_existing = ids.length - wanted.length
+
+  const fetched = await mapConcurrent(wanted, options?.concurrency || FAST_DETAIL_CONCURRENCY, async id => {
+    try {
+      return { tender: await fetchTender(id, rules), error: null as string | null }
+    } catch (error) {
+      return { tender: null, error: `${id}: ${error instanceof Error ? error.message : String(error)}` }
+    }
+  })
+
+  const good = fetched.flatMap(x => x.tender ? [x.tender] : [])
+  for (const item of fetched) {
+    if (item.error) {
+      counters.failed++
+      counters.errors.push(item.error)
+    }
+  }
+  await upsertTenderBatch(good, existing, counters, forceRefresh)
+  return counters
+}
+
 async function closeExpiredTenders() {
   const admin = createAdminClient()
   await admin.from('tenders').update({ status: 'closed' }).eq('status', 'open').lt('deadline_at', new Date().toISOString())
 }
 
-async function getBackfillState() {
-  const admin = createAdminClient()
-  const { data, error } = await admin.from('ingestion_state').select('*').eq('key', 'live_backfill').maybeSingle()
-  if (error) throw error
-  if (data) return data as any
-  const { data: created, error: createError } = await admin.from('ingestion_state').insert({ key: 'live_backfill', next_page: 1, complete: false, cycle_started_at: new Date().toISOString() }).select('*').single()
-  if (createError) throw createError
-  return created as any
-}
-
-async function saveBackfillState(values: Record<string, unknown>) {
+async function saveFastState(values: Record<string, unknown>) {
   const admin = createAdminClient()
   const { error } = await admin.from('ingestion_state').upsert({ key: 'live_backfill', ...values, updated_at: new Date().toISOString() }, { onConflict: 'key' })
   if (error) throw error
 }
 
-async function runBackfill(session: SearchSession, rules: TaxonomyRule[], runStartedMs: number, maxPages = BACKFILL_PAGES_PER_RUN) {
-  const totals = blankCounters()
-  const state = await getBackfillState()
-  if (state.complete) return { counters: totals, pagesScanned: 0, cursorStart: state.next_page, cursorEnd: state.next_page, complete: true }
-
-  const cursorStart = Math.max(1, Number(state.next_page || 1))
-  let page = cursorStart
-  let pagesScanned = 0
-  for (; pagesScanned < maxPages; page++) {
-    if (Date.now() - runStartedMs > TIME_BUDGET_MS - 5000) break
-
-    let pageIds: string[]
-    try {
-      const result = await fetchSearchPage(session, page)
-      pageIds = result.ids
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error)
-      totals.errors.push(`Backfill page ${page}: ${msg}`)
-      await saveBackfillState({ next_page: page, complete: false, reported_live_count: session.reportedCount, last_error: msg })
-      break
-    }
-
-    if (!pageIds.length) {
-      await saveBackfillState({ next_page: page, complete: true, reported_live_count: session.reportedCount, cycle_completed_at: new Date().toISOString(), last_error: null })
-      return { counters: totals, pagesScanned, cursorStart, cursorEnd: page, complete: true }
-    }
-
-    const result = await processIds(pageIds, rules, runStartedMs, false)
-    mergeCounters(totals, result.counters)
-    if (!result.completed) {
-      await saveBackfillState({ next_page: page, complete: false, reported_live_count: session.reportedCount, last_error: 'Time budget ended before the page was fully processed.' })
-      break
-    }
-
-    pagesScanned++
-    await saveBackfillState({ next_page: page + 1, complete: false, reported_live_count: session.reportedCount, last_error: null })
-    if (pagesScanned < maxPages) await sleep(REQUEST_DELAY_MS)
-  }
-
-  const latest = await getBackfillState()
-  return { counters: totals, pagesScanned, cursorStart, cursorEnd: Number(latest.next_page || page), complete: !!latest.complete }
-}
-
-async function refreshStaleRelevant(rules: TaxonomyRule[], runStartedMs: number) {
-  const totals = blankCounters()
-  if (Date.now() - runStartedMs > TIME_BUDGET_MS - 9000) return totals
+async function logRun(mode: string, started: string, totals: Counters, extra: Record<string, unknown> = {}) {
   const admin = createAdminClient()
-  const staleBefore = new Date(Date.now() - REFRESH_AFTER_HOURS * 60 * 60 * 1000).toISOString()
-  const { data, error } = await admin
-    .from('tenders')
-    .select('resource_id')
-    .eq('status', 'open')
-    .gte('relevance_score', 10)
-    .lt('last_seen_at', staleBefore)
-    .order('last_seen_at', { ascending: true })
-    .limit(REFRESH_PER_RUN)
-  if (error) {
-    totals.errors.push(`Refresh queue: ${error.message}`)
-    return totals
-  }
-  const ids = (data || []).map(x => x.resource_id)
-  if (!ids.length) return totals
-  const result = await processIds(ids, rules, runStartedMs, true)
-  mergeCounters(totals, result.counters)
-  return totals
-}
-
-export async function runIngestion() {
-  const runStartedMs = Date.now()
-  const started = new Date().toISOString()
-  const admin = createAdminClient()
-  const rules = await loadRules()
-  const totals = blankCounters()
-  let pagesScanned = 0
-  let cursorStart: number | null = null
-  let cursorEnd: number | null = null
-  let reportedLiveCount: number | null = null
-  let backfillComplete = false
-
-  await closeExpiredTenders()
-
-  try {
-    const session = await startSearchSession()
-    reportedLiveCount = session.reportedCount
-
-    // 1) Incremental lane: always inspect the newest notices, but only fetch detail pages for IDs
-    // that are not already stored. This keeps newly published opportunities appearing quickly.
-    const newestIds = await discoverNewest(session, INCREMENTAL_LIMIT)
-    const incremental = await processIds(newestIds, rules, runStartedMs, false)
-    mergeCounters(totals, incremental.counters)
-
-    // 2) Backfill lane: walk the complete currently-live catalogue with a persistent page cursor.
-    // A page cursor advances only after every ID on that page has either been processed or safely
-    // recognised as already present. A timeout therefore cannot permanently skip a page.
-    if (Date.now() - runStartedMs < TIME_BUDGET_MS - 7000) {
-      const backfill = await runBackfill(session, rules, runStartedMs)
-      mergeCounters(totals, backfill.counters)
-      pagesScanned = backfill.pagesScanned
-      cursorStart = backfill.cursorStart
-      cursorEnd = backfill.cursorEnd
-      backfillComplete = backfill.complete
-    }
-
-    // 3) Refresh a small number of previously relevant open notices so changed deadlines/statuses
-    // eventually reconcile without repeatedly refetching every stored notice every hour.
-    if (Date.now() - runStartedMs < TIME_BUDGET_MS - 8000) {
-      const refreshed = await refreshStaleRelevant(rules, runStartedMs)
-      mergeCounters(totals, refreshed)
-    }
-  } catch (error) {
-    totals.failed++
-    totals.errors.push(error instanceof Error ? error.message : String(error))
-  }
-
   const finished = new Date().toISOString()
   await admin.from('ingest_runs').insert({
     started_at: started,
     finished_at: finished,
-    mode: 'scheduled',
+    mode,
     discovered: totals.discovered,
+    candidates: totals.candidates,
     inserted: totals.inserted,
     updated: totals.updated,
     eligible: totals.eligible,
@@ -450,30 +388,140 @@ export async function runIngestion() {
     failed: totals.failed,
     skipped_existing: totals.skipped_existing,
     refreshed: totals.refreshed,
-    pages_scanned: pagesScanned,
-    cursor_start: cursorStart,
-    cursor_end: cursorEnd,
-    reported_live_count: reportedLiveCount,
+    pages_scanned: Number(extra.pagesScanned || 0),
+    cursor_start: null,
+    cursor_end: null,
+    reported_live_count: extra.reportedLiveCount ?? null,
     errors: totals.errors
   })
+  return finished
+}
 
-  return {
-    started,
-    finished,
-    reportedLiveCount,
-    backfill: { pagesScanned, cursorStart, cursorEnd, complete: backfillComplete },
-    ...totals
+/**
+ * FAST FULL REFRESH
+ * 1) Downloads every CURRENT search-results page in parallel. Those pages already contain title + summary.
+ * 2) Applies cheap merchant-relevance filtering to the catalogue without opening 2,800 detail pages.
+ * 3) Opens only the plausible merchant candidates, in bounded parallel batches, then applies official
+ *    Procurement Type + CPV + context-aware supply-only classification.
+ *
+ * This turns initial indexing from a days-long serial crawl into a minutes-scale operation while keeping
+ * the detail-page traffic bounded to the small candidate pool.
+ */
+export async function runFastFullRefresh() {
+  const started = new Date().toISOString()
+  const startedMs = Date.now()
+  const totals = blankCounters()
+  const rules = await loadRules()
+  await closeExpiredTenders()
+
+  try {
+    const session = await startSearchSession()
+    const reportedLiveCount = session.reportedCount || session.page1Ids.length
+    const totalPages = Math.max(1, Math.ceil(reportedLiveCount / RESULTS_PER_PAGE))
+    const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1)
+
+    const pageResults = await mapConcurrent(pageNumbers, FAST_SEARCH_CONCURRENCY, async page => {
+      try {
+        return { page, result: await fetchSearchPage(session, page), error: null as string | null }
+      } catch (error) {
+        return { page, result: null, error: `Search page ${page}: ${error instanceof Error ? error.message : String(error)}` }
+      }
+    })
+
+    const summariesById = new Map<string, SearchSummary>()
+    for (const p of pageResults) {
+      if (p.error) {
+        totals.failed++
+        totals.errors.push(p.error)
+        continue
+      }
+      for (const summary of extractSearchSummaries(p.result!.html)) summariesById.set(summary.resourceId, summary)
+    }
+
+    const summaries = [...summariesById.values()]
+    totals.discovered = summaries.length
+    const candidates = summaries
+      .map(s => candidateFromSummary(s, rules))
+      .filter(s => s.preScore >= FAST_PREFILTER_SCORE && s.preCategories.length > 0)
+      .sort((a, b) => b.preScore - a.preScore)
+    totals.candidates = candidates.length
+
+    // A full refresh deliberately re-opens every candidate, including existing ones, so live deadlines,
+    // procurement type and CPVs are reconciled. Non-candidates already stored are not deleted: they may be
+    // retained for pricing/audit history, but expired records are closed by closeExpiredTenders().
+    const detailed = await processIdsConcurrent(candidates.map(c => c.resourceId), rules, { forceRefresh: true, concurrency: FAST_DETAIL_CONCURRENCY })
+    totals.inserted += detailed.inserted
+    totals.updated += detailed.updated
+    totals.eligible += detailed.eligible
+    totals.mixed += detailed.mixed
+    totals.failed += detailed.failed
+    totals.skipped_existing += detailed.skipped_existing
+    totals.refreshed += detailed.refreshed
+    totals.errors.push(...detailed.errors)
+
+    const complete = pageResults.every(p => !p.error)
+    const durationMs = Date.now() - startedMs
+    await saveFastState({
+      next_page: totalPages + 1,
+      complete,
+      reported_live_count: reportedLiveCount,
+      cycle_started_at: started,
+      cycle_completed_at: complete ? new Date().toISOString() : null,
+      last_error: complete ? null : `${pageResults.filter(p => p.error).length} catalogue page(s) failed during fast refresh.`
+    })
+    const finished = await logRun('fast_full', started, totals, { pagesScanned: pageResults.filter(p => !p.error).length, reportedLiveCount })
+    return { started, finished, durationMs, reportedLiveCount, totalPages, ...totals }
+  } catch (error) {
+    totals.failed++
+    totals.errors.push(error instanceof Error ? error.message : String(error))
+    const finished = await logRun('fast_full', started, totals)
+    return { started, finished, durationMs: Date.now() - startedMs, reportedLiveCount: null, totalPages: 0, ...totals }
   }
 }
 
-export async function resetBackfill() {
-  const admin = createAdminClient()
-  const now = new Date().toISOString()
-  const { error } = await admin.from('ingestion_state').upsert({
-    key: 'live_backfill', next_page: 1, complete: false, reported_live_count: null,
-    cycle_started_at: now, cycle_completed_at: null, last_error: null, updated_at: now
-  }, { onConflict: 'key' })
-  if (error) throw error
+/** Normal hourly lane: only newest search pages + a tiny stale refresh set. */
+export async function runIngestion() {
+  const started = new Date().toISOString()
+  const totals = blankCounters()
+  const rules = await loadRules()
+  await closeExpiredTenders()
+  let reportedLiveCount: number | null = null
+
+  try {
+    const session = await startSearchSession()
+    reportedLiveCount = session.reportedCount
+    const newestPages = await mapConcurrent(Array.from({ length: INCREMENTAL_PAGES }, (_, i) => i + 1), Math.min(INCREMENTAL_PAGES, 5), page => fetchSearchPage(session, page))
+    const newestIds = [...new Set(newestPages.flatMap(p => p.ids))]
+    const incremental = await processIdsConcurrent(newestIds, rules, { forceRefresh: false, concurrency: FAST_DETAIL_CONCURRENCY })
+    Object.assign(totals, incremental)
+
+    const admin = createAdminClient()
+    const staleBefore = new Date(Date.now() - REFRESH_AFTER_HOURS * 60 * 60 * 1000).toISOString()
+    const { data } = await admin
+      .from('tenders')
+      .select('resource_id')
+      .eq('status', 'open')
+      .gte('relevance_score', 10)
+      .lt('last_seen_at', staleBefore)
+      .order('last_seen_at', { ascending: true })
+      .limit(REFRESH_PER_RUN)
+    const refreshIds = (data || []).map(x => x.resource_id)
+    if (refreshIds.length) {
+      const refreshed = await processIdsConcurrent(refreshIds, rules, { forceRefresh: true, concurrency: Math.min(4, FAST_DETAIL_CONCURRENCY) })
+      totals.updated += refreshed.updated
+      totals.eligible += refreshed.eligible
+      totals.mixed += refreshed.mixed
+      totals.failed += refreshed.failed
+      totals.refreshed += refreshed.refreshed
+      totals.errors.push(...refreshed.errors)
+    }
+  } catch (error) {
+    totals.failed++
+    totals.errors.push(error instanceof Error ? error.message : String(error))
+  }
+
+  const finished = await logRun('scheduled', started, totals, { pagesScanned: INCREMENTAL_PAGES, reportedLiveCount })
+  return { started, finished, reportedLiveCount, ...totals }
 }
 
 export async function reclassifyStoredTenders() {

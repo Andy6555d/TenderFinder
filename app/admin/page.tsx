@@ -1,8 +1,12 @@
 import { requireAdmin } from '@/lib/auth'
 import {
-  approveMember, suspendMember, ingestNow, restartBackfill, reclassifyAll,
+  approveMember, suspendMember, ingestNow, fastFullRefresh, reclassifyAll,
   approveTender, rejectTender, clearTenderOverride
 } from './actions'
+
+// Fast Full Refresh is engineered to complete inside normal serverless limits, but this allows
+// longer execution on Vercel plans that support it. Lower-plan platform caps still take precedence.
+export const maxDuration = 300
 
 export default async function Page() {
   const { supabase } = await requireAdmin()
@@ -17,29 +21,30 @@ export default async function Page() {
       .limit(100),
     supabase.from('ingestion_state').select('*').eq('key', 'live_backfill').maybeSingle()
   ])
+  const latestFast = (runs || []).find((r: any) => r.mode === 'fast_full')
 
   return (
     <div className="wrap page">
       <div className="page-head">
         <div>
           <h1>Admin</h1>
-          <p className="sub">Member approval, complete-live-catalogue backfill, ingestion health and tender review.</p>
+          <p className="sub">Member approval, fast live-catalogue indexing, ingestion health and tender review.</p>
         </div>
         <div className="row-actions">
-          <form action={ingestNow}><button className="btn btn-primary">Run scan now</button></form>
-          <form action={reclassifyAll}><button className="btn btn-secondary">Reclassify stored tenders</button></form>
-          <form action={restartBackfill}><button className="btn btn-ghost">Restart full backfill</button></form>
+          <form action={fastFullRefresh}><button className="btn btn-primary">Fast full refresh</button></form>
+          <form action={ingestNow}><button className="btn btn-secondary">Check newest now</button></form>
+          <form action={reclassifyAll}><button className="btn btn-ghost">Reclassify stored tenders</button></form>
         </div>
       </div>
 
       <section className="panel">
-        <h3>Full live-catalogue backfill</h3>
+        <h3>Fast live-catalogue index</h3>
         <div className="summary-strip">
-          <div><small>Next page</small><strong>{state?.next_page ?? 1}</strong></div>
-          <div><small>eTenders live count</small><strong>{state?.reported_live_count ?? '—'}</strong></div>
-          <div><small>Status</small><strong>{state?.complete ? 'Complete' : 'Running'}</strong></div>
+          <div><small>eTenders live count</small><strong>{state?.reported_live_count ?? latestFast?.reported_live_count ?? '—'}</strong></div>
+          <div><small>Catalogue status</small><strong>{state?.complete ? 'Indexed' : 'Not fully indexed'}</strong></div>
+          <div><small>Latest candidates</small><strong>{latestFast?.candidates ?? '—'}</strong></div>
         </div>
-        <p className="muted">The hourly job checks the newest notices immediately and separately walks every page of the currently-live eTenders catalogue. The page cursor advances only after a full page is safely processed/skipped.</p>
+        <p className="muted">Fast full refresh reads all current eTenders search-result pages in parallel, pre-filters them using merchant relevance, then opens only plausible merchant candidates for full Procurement Type, CPV and supply-only analysis. It replaces the old days-long page-by-page backfill.</p>
         {state?.last_error && <div className="error-box">{state.last_error}</div>}
       </section>
 
@@ -49,9 +54,9 @@ export default async function Page() {
       </tbody></table></div>
 
       <h2 className="section-title">Ingestion runs</h2>
-      <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Started</th><th>Live count</th><th>Found</th><th>New</th><th>Existing skipped</th><th>Refreshed</th><th>Eligible</th><th>Mixed</th><th>Backfill pages</th><th>Cursor</th><th>Failed</th></tr></thead><tbody>
+      <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Started</th><th>Mode</th><th>Live count</th><th>Catalogue found</th><th>Candidates</th><th>New</th><th>Updated</th><th>Eligible</th><th>Mixed</th><th>Pages</th><th>Failed</th></tr></thead><tbody>
         {(runs || []).map((r: any) => <tr key={r.id}>
-          <td>{new Date(r.started_at).toLocaleString('en-IE')}</td><td>{r.reported_live_count ?? '—'}</td><td>{r.discovered}</td><td>{r.inserted}</td><td>{r.skipped_existing ?? 0}</td><td>{r.refreshed ?? 0}</td><td>{r.eligible}</td><td>{r.mixed}</td><td>{r.pages_scanned ?? 0}</td><td>{r.cursor_start ?? '—'} → {r.cursor_end ?? '—'}</td><td>{r.failed}</td>
+          <td>{new Date(r.started_at).toLocaleString('en-IE')}</td><td>{r.mode}</td><td>{r.reported_live_count ?? '—'}</td><td>{r.discovered}</td><td>{r.candidates ?? 0}</td><td>{r.inserted}</td><td>{r.updated}</td><td>{r.eligible}</td><td>{r.mixed}</td><td>{r.pages_scanned ?? 0}</td><td>{r.failed}</td>
         </tr>)}
       </tbody></table></div>
 

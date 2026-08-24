@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { requireAdmin } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { reclassifyStoredTenders, resetBackfill, runIngestion } from '@/lib/etenders'
+import { reclassifyStoredTenders, runFastFullRefresh, runIngestion } from '@/lib/etenders'
 
 export async function approveMember(id: string) {
   await requireAdmin()
@@ -28,10 +28,11 @@ export async function ingestNow() {
   revalidatePath('/dashboard')
 }
 
-export async function restartBackfill() {
+export async function fastFullRefresh() {
   await requireAdmin()
-  await resetBackfill()
+  await runFastFullRefresh()
   revalidatePath('/admin')
+  revalidatePath('/dashboard')
 }
 
 export async function reclassifyAll() {

@@ -1,4 +1,4 @@
--- UH Tender Finder - current full schema (v2)
+-- UH Tender Finder - current full schema (v3 fast index)
 -- Run this file on a NEW Supabase project.
 
 create extension if not exists pgcrypto;
@@ -99,6 +99,7 @@ create table if not exists public.ingest_runs (
   finished_at timestamptz,
   mode text not null default 'scheduled',
   discovered integer not null default 0,
+  candidates integer not null default 0,
   inserted integer not null default 0,
   updated integer not null default 0,
   eligible integer not null default 0,
