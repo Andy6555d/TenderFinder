@@ -13,6 +13,7 @@ export default function Page() {
         <a href="#faq">FAQ</a>
         <a href="#pricing">How to price a tender</a>
         <a href="#etenders">How to use eTenders</a>
+        <a href="#documents">Standard documents checklist</a>
       </nav>
 
       <section id="how-to-use" className="panel section-title">
@@ -120,6 +121,30 @@ export default function Page() {
 
         <h3>7. After submission</h3>
         <p>Contracting authorities aren't obliged to respond quickly. Award decisions can take weeks. If you're unsuccessful, you're generally entitled to ask for feedback on your submission, which can be genuinely useful for the next one.</p>
+      </section>
+
+      <section id="documents" className="panel section-title">
+        <h2>Standard documents checklist</h2>
+        <p>Separate from the pricing schedule itself, a core set of supporting documents comes up again and again across tenders. Worth keeping these on file rather than hunting for them each time, see <a href="/documents">Documents</a> to store them once and have them always ready.</p>
+
+        <h3>Comes up on almost every tender</h3>
+        <ul>
+          <li><strong>Tax Clearance Certificate</strong> &mdash; from Revenue. Legally required once payments from a public body are expected to reach &euro;10,000 (including VAT) in a 12 month period, so it applies far more often than you might expect. Valid for 12 months, so it does expire.</li>
+          <li><strong>A self-declaration of eligibility</strong> &mdash; confirming you're not excluded on grounds like insolvency or tax non-compliance, and that you meet the competition's basic requirements. Above the EU threshold this is the formal eESPD (European Single Procurement Document). Below threshold, expect a simpler version of the same idea rather than the formal form.</li>
+          <li><strong>A signed tenderer's statement</strong> &mdash; confirming you accept the tender's terms as published. Where the standard government RFT template is used, this is a specific appendix, returned as a signed scan on your own letterhead.</li>
+          <li><strong>The completed pricing schedule</strong> &mdash; see the pricing guide above.</li>
+        </ul>
+
+        <h3>Common, but check each notice</h3>
+        <ul>
+          <li>Evidence of public and employer's liability insurance, sometimes required upfront, sometimes only once you're the preferred bidder.</li>
+          <li>Company registration details (CRO number, VAT number, registered address).</li>
+          <li>Trade references or past-performance evidence.</li>
+          <li>A Register of Beneficial Ownership (RBO) confirmation.</li>
+        </ul>
+
+        <h3>Worth knowing</h3>
+        <p>An eESPD you've already completed can usually be reused on a later competition, as long as you confirm the details are still accurate and you meet that competition's specific criteria. Keeping a current copy on file rather than starting fresh each time is worth doing.</p>
       </section>
     </div>
   )

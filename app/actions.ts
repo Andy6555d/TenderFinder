@@ -9,7 +9,7 @@ export async function login(formData: FormData) {
   const password = String(formData.get('password') || '')
   const { error } = await supabase.auth.signInWithPassword({ email, password })
   if (error) redirect(`/login?error=${encodeURIComponent(error.message)}`)
-  redirect('/dashboard')
+  redirect('/opportunities')
 }
 export async function signup(formData: FormData) {
   const supabase = createClient()
@@ -28,10 +28,17 @@ export async function savePreferences(formData: FormData) {
   const supabase=createClient(); const {data:{user}}=await supabase.auth.getUser(); if(!user) redirect('/login')
   const categories=formData.getAll('categories').map(String)
   const notifyEmail=formData.get('notify_email')==='on'
+  const notifyPlanning=formData.get('notify_planning')==='on'
   const minScore=Math.max(0,Math.min(100,Number(formData.get('min_relevance_score')||20)))
-  const { error } = await supabase.rpc('update_my_preferences', { p_categories: categories, p_notify_email: notifyEmail, p_min_relevance_score: minScore })
-  if (error) throw new Error(error.message)
-  revalidatePath('/preferences'); revalidatePath('/dashboard')
+  const num=(name:string)=>{ const raw=String(formData.get(name)||'').trim(); if(!raw)return null; const n=Number(raw); return Number.isFinite(n)?n:null }
+  const { error } = await supabase.rpc('update_my_opportunity_preferences', {
+    p_categories: categories, p_notify_email: notifyEmail, p_min_relevance_score: minScore,
+    p_branch_address:String(formData.get('branch_address')||''), p_branch_eircode:String(formData.get('branch_eircode')||''),
+    p_branch_latitude:num('branch_latitude'), p_branch_longitude:num('branch_longitude'),
+    p_planning_radius_km:Math.max(5,Math.min(100,Number(formData.get('planning_radius_km')||30))), p_notify_planning:notifyPlanning
+  })
+  if (error) throw new Error(`${error.message}. Have you run supabase-migration-v7-planning-leads.sql?`)
+  revalidatePath('/preferences'); revalidatePath('/dashboard'); revalidatePath('/planning'); revalidatePath('/opportunities')
 }
 export async function saveTender(tenderId:string) {
   const supabase=createClient(); const {data:{user}}=await supabase.auth.getUser(); if(!user) return

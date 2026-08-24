@@ -1,7 +1,7 @@
 import { requireAdmin } from '@/lib/auth'
 import {
   approveMember, suspendMember, ingestNow, fastFullRefresh, reclassifyAll,
-  approveTender, rejectTender, clearTenderOverride
+  approveTender, rejectTender, clearTenderOverride, refreshPlanning, fullPlanningRefresh, refreshCommencements
 } from './actions'
 
 // Fast Full Refresh is engineered to complete inside normal serverless limits, but this allows
@@ -10,7 +10,7 @@ export const maxDuration = 300
 
 export default async function Page() {
   const { supabase } = await requireAdmin()
-  const [{ data: profiles }, { data: runs }, { data: review }, { data: state }] = await Promise.all([
+  const [{ data: profiles }, { data: runs }, { data: review }, { data: state }, { data: planningRuns }, { count: planningCount }, { count: startingCount }] = await Promise.all([
     supabase.from('profiles').select('*').order('created_at', { ascending: false }),
     supabase.from('ingest_runs').select('*').order('started_at', { ascending: false }).limit(12),
     supabase.from('tenders')
@@ -19,7 +19,10 @@ export default async function Page() {
       .or('supply_only_status.eq.mixed,admin_override.neq.none')
       .order('relevance_score', { ascending: false })
       .limit(100),
-    supabase.from('ingestion_state').select('*').eq('key', 'live_backfill').maybeSingle()
+    supabase.from('ingestion_state').select('*').eq('key', 'live_backfill').maybeSingle(),
+    supabase.from('planning_ingest_runs').select('*').order('started_at', { ascending: false }).limit(10),
+    supabase.from('planning_applications').select('*', { count: 'exact', head: true }).eq('ignored', false),
+    supabase.from('planning_applications').select('*', { count: 'exact', head: true }).eq('project_stage', 'starting_soon').eq('ignored', false)
   ])
   const latestFast = (runs || []).find((r: any) => r.mode === 'fast_full')
 
@@ -47,6 +50,15 @@ export default async function Page() {
         <p className="muted">Fast full refresh reads all current eTenders search-result pages in parallel, pre-filters them using merchant relevance, then opens only plausible merchant candidates for full Procurement Type, CPV and supply-only analysis. It replaces the old days-long page-by-page backfill.</p>
         {state?.last_error && <div className="error-box">{state.last_error}</div>}
       </section>
+
+
+      <h2 className="section-title">Planning & Construction engine</h2>
+      <section className="panel">
+        <div className="summary-strip"><div><small>Relevant planning leads</small><strong>{planningCount ?? '—'}</strong></div><div><small>Starting soon</small><strong>{startingCount ?? '—'}</strong></div><div><small>Latest planning scan</small><strong>{planningRuns?.[0]?.fetched ?? '—'}</strong></div></div>
+        <div className="row-actions"><form action={refreshPlanning}><button className="btn btn-primary">Check newest planning</button></form><form action={fullPlanningRefresh}><button className="btn btn-secondary">Planning full refresh</button></form><form action={refreshCommencements}><button className="btn btn-ghost">Match commencements</button></form></div>
+        <p className="muted">The planning engine is independent of eTenders. Normal scans read the newest ArcGIS pages and then match recent BCMS commencement notices by normalized planning reference. Full refresh reads a larger recent slice; it does not download the entire national historical archive.</p>
+      </section>
+      <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Started</th><th>Mode</th><th>Fetched</th><th>New</th><th>Updated</th><th>Relevant</th><th>Ignored</th><th>Pages</th><th>BCMS checked</th><th>Matched</th></tr></thead><tbody>{(planningRuns || []).map((r:any)=><tr key={r.id}><td>{new Date(r.started_at).toLocaleString('en-IE')}</td><td>{r.mode}</td><td>{r.fetched}</td><td>{r.inserted}</td><td>{r.updated}</td><td>{r.relevant}</td><td>{r.ignored}</td><td>{r.pages_scanned}</td><td>{r.commencements_checked}</td><td>{r.commencements_matched}</td></tr>)}</tbody></table></div>
 
       <h2 className="section-title">Members</h2>
       <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Outlet</th><th>Email</th><th>Status</th><th>Action</th></tr></thead><tbody>

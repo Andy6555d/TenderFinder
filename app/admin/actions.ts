@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { requireAdmin } from '@/lib/auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { reclassifyStoredTenders, runFastFullRefresh, runIngestion } from '@/lib/etenders'
+import { runPlanningIngestion, matchCommencements } from '@/lib/planning'
 
 export async function approveMember(id: string) {
   await requireAdmin()
@@ -84,3 +85,7 @@ export async function clearTenderOverride(id: string) {
   revalidatePath('/admin')
   revalidatePath('/dashboard')
 }
+
+export async function refreshPlanning() { await requireAdmin(); await runPlanningIngestion('scheduled'); revalidatePath('/admin'); revalidatePath('/planning'); revalidatePath('/opportunities') }
+export async function fullPlanningRefresh() { await requireAdmin(); await runPlanningIngestion('full'); revalidatePath('/admin'); revalidatePath('/planning'); revalidatePath('/opportunities') }
+export async function refreshCommencements() { await requireAdmin(); await matchCommencements(); revalidatePath('/admin'); revalidatePath('/planning'); revalidatePath('/opportunities') }

@@ -130,3 +130,39 @@ Members can save tenders, use a private pricing workspace, import official CSV/X
 # Boundary
 
 UH Tender Finder reads public eTenders notice pages. It does not bypass login/CAPTCHA, access protected tender documents, submit tenders, or coordinate member bid prices. eTenders remains the official procurement/submission system.
+
+---
+
+# V7 — Planning & Construction Leads
+
+V7 adds a second opportunity engine alongside eTenders. It uses the Department of Housing National Planning Applications ArcGIS service and the National Building Control Office commencement dataset. The two engines remain isolated underneath but members enter them from one `Find opportunities` home page.
+
+## Upgrade an existing V6 deployment
+
+1. Back up Supabase.
+2. Run `supabase-migration-v7-planning-leads.sql` in the Supabase SQL Editor.
+3. Deploy this repository.
+4. In Vercel, keep the existing environment variables. The planning variables in `.env.example` are optional because safe official defaults are included.
+5. Open `/admin` and click **Planning full refresh** once.
+6. Click **Match commencements** after the first planning import.
+7. Each member should open **Alerts & branch** and set their branch location/radius. If they are physically at the branch, **Use my current location** captures browser coordinates.
+
+## What the planning engine does
+
+- reads structured official planning applications, not council HTML;
+- classifies one-off houses, housing developments, extensions, commercial, agricultural, renovation and ancillary work;
+- suppresses obvious low-value signals such as signage, telecoms and retention-only records;
+- scores likely builders-merchant relevance and predicts broad material categories;
+- stores indicative opportunity ranges as estimates, never confirmed project spend;
+- matches BCMS commencement records using normalized planning references and promotes matched projects to **Starting soon**;
+- calculates member-to-project distance when a member has configured branch coordinates;
+- lets a member privately add a known builder, developer, architect, engineer, plumber or heating contractor;
+- keeps member contact/relationship notes private under RLS.
+
+## Important contact-data boundary
+
+The national BCMS open dataset includes planning reference, project details and commencement dates but not the builder/owner contact fields held inside the BCMS submission process. The app therefore does **not** invent or scrape private contact details. It surfaces applicant/agent fields only where the official planning feed exposes them and lets members record reliable local/customer knowledge privately.
+
+## Scheduled scans
+
+`vercel.json` keeps the hourly eTenders scan and adds a daily planning scan at 05:35 UTC. Normal planning scans inspect the newest configured pages; the admin full refresh reads a larger recent slice. This avoids repeatedly downloading the full national historical archive.
