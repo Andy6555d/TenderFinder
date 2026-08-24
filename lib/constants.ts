@@ -4,5 +4,12 @@ export const MEMBER_CATEGORIES = [
   'Paint & Decorating', 'PPE & Workwear', 'Landscaping', 'Electrical & Lighting', 'General Merchant'
 ] as const
 
-export const ETENDERS_SEARCH_URL = 'https://www.etenders.gov.ie/epps/quickSearchAction.do?searchType=cftFTS'
+// latest=true restricts eTenders' search to currently live/open competitions only.
+// Without it the same endpoint also returns closed and awarded notices going back years.
+export const ETENDERS_SEARCH_URL = 'https://www.etenders.gov.ie/epps/quickSearchAction.do?latest=true&searchType=cftFTS'
 export const ETENDERS_DETAIL_BASE = 'https://www.etenders.gov.ie/epps/cft/prepareViewCfTWS.do?resourceId='
+
+// A tender is badged "New" in the member dashboard while it's within this many hours of first being seen.
+export const NEW_WITHIN_HOURS = 24
+// A tender is badged "Closing soon" once its deadline is within this many days.
+export const CLOSING_SOON_DAYS = 5
