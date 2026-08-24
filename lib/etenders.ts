@@ -89,13 +89,18 @@ function parseCpv(v: string | null) {
 
 // Wraps a single eTenders fetch with a couple of retries on transient failures
 // (network blip, momentary 5xx). Does not retry 4xx responses - those won't fix themselves.
-async function fetchWithRetry(url: string) {
+// `cookie`, when provided, is sent back to keep eTenders' session-scoped search state
+// (the live-only filter and page position) intact across requests - see discoverLatestResourceIds.
+async function fetchWithRetry(url: string, cookie?: string | null) {
   let lastError: unknown
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const response = await fetch(url, {
         cache: 'no-store',
-        headers: { 'User-Agent': process.env.ETENDERS_USER_AGENT || 'UH-Tender-Finder/1.0' }
+        headers: {
+          'User-Agent': process.env.ETENDERS_USER_AGENT || 'UH-Tender-Finder/1.0',
+          ...(cookie ? { Cookie: cookie } : {})
+        }
       })
       if (!response.ok) {
         if (response.status >= 400 && response.status < 500) {
@@ -110,6 +115,20 @@ async function fetchWithRetry(url: string) {
     }
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError))
+}
+
+// eTenders' search results are session-scoped (Wicket framework): a plain stateless request with
+// no cookie gets treated as a brand new visitor and silently falls back to the default full
+// historical archive at page 1, ignoring both the live-only filter and any requested page number.
+// This reads whatever session cookie the server set on a response so it can be sent back on the
+// next request in the same discovery run.
+function extractCookieHeader(response: Response) {
+  const headers = response.headers as unknown as { getSetCookie?: () => string[] }
+  const raw = headers.getSetCookie ? headers.getSetCookie() : []
+  const fallback = response.headers.get('set-cookie')
+  const cookies = raw.length ? raw : fallback ? [fallback] : []
+  if (!cookies.length) return null
+  return cookies.map(c => c.split(';')[0]).join('; ')
 }
 
 function extractResourceIds(html: string) {
@@ -129,21 +148,24 @@ function extractResourceIds(html: string) {
 
 // Walks eTenders' paginated "currently live" search results, collecting resource IDs across
 // pages until `limit` is reached, a page yields nothing new (end of results, or the pagination
-// markup changed and we can no longer find a next page), or MAX_PAGES is hit. This is the
-// difference between only ever seeing the newest 10 notices and actually covering the live backlog.
+// markup changed and we can no longer find a next page), or MAX_PAGES is hit. Holds a session
+// cookie across the whole walk - without it, page 2+ silently resets to page 1 of the wrong list.
 export async function discoverLatestResourceIds(limit = 60) {
   const ids: string[] = []
+  let cookie: string | null = null
   for (let page = 1; page <= MAX_PAGES && ids.length < limit; page++) {
     const url = page === 1 ? ETENDERS_SEARCH_URL : `${ETENDERS_SEARCH_URL}&${PAGE_PARAM}=${page}`
-    let html: string
+    let response: Response
     try {
-      const response = await fetchWithRetry(url)
-      html = await response.text()
+      response = await fetchWithRetry(url, cookie)
     } catch {
       // A failed page (beyond page 1) just ends discovery for this run rather than failing the
       // whole scan - whatever was already collected is still used.
       break
     }
+    const setCookie = extractCookieHeader(response)
+    if (setCookie) cookie = setCookie
+    const html = await response.text()
     const pageIds = extractResourceIds(html)
     const newIds = pageIds.filter(id => !ids.includes(id))
     if (!newIds.length) break // no more results, or pagination stopped changing the page
