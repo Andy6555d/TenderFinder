@@ -6,12 +6,14 @@ const BCMS_API = process.env.BCMS_CKAN_API || 'https://data.nbco.gov.ie/api/3/ac
 const PAGE_SIZE = Math.min(2000, Math.max(100, Number(process.env.PLANNING_PAGE_SIZE || 2000)))
 const NORMAL_PAGES = Math.max(1, Number(process.env.PLANNING_NORMAL_PAGES || 3))
 const FULL_PAGES = Math.max(NORMAL_PAGES, Number(process.env.PLANNING_FULL_PAGES || 15))
+const PENDING_PAGES = Math.max(1, Number(process.env.PLANNING_PENDING_PAGES || 30))
+const PENDING_LOOKBACK_DAYS = Math.max(30, Number(process.env.PLANNING_PENDING_LOOKBACK_DAYS || 730))
 
 type AnyRow = Record<string, any>
 
 type Classification = {
   project_type: string; relevance_score: number; categories: string[]; ignored: boolean;
-  low: number | null; high: number | null; reason: string; stage: string
+  low: number | null; high: number | null; band: string | null; reason: string; stage: string
 }
 
 function text(v: any) { return v == null ? '' : String(v).trim() }
@@ -63,13 +65,25 @@ export function classifyPlanning(a: AnyRow): Classification {
   const oneOff = bool(pick(a,'OneOffHouse','OneOffKPI','one_off_house')) === true
   const blob = `${desc} ${type}`
 
-  const hardIgnore = ['advertisement','signage','sign ','telecommunications','telecom','mast','antenna','retention of existing','retention permission only','change of use only']
+  const hardIgnore = ['advertisement','signage','sign ','telecommunications','telecom','mast','antenna']
   const refused = containsAny(`${decision} ${status}`, ['refus','invalid','withdrawn'])
-  const pureRetention = type.includes('retention') && !containsAny(desc,['extension','construction','build','dwelling','house','garage','alteration'])
+  // Retention applications regularise works already carried out without permission - the
+  // construction already happened, so there's no future materials sale here regardless of
+  // whether the description mentions "extension" or "construction" (it's describing what was
+  // already built). Previously only a "retention with no construction words" was excluded, which
+  // let ordinary retention-of-an-extension applications through as if they were prospective work.
+  const isRetention = type.includes('retention') || desc.includes('retention of') || desc.includes('retention permission')
+  const isChangeOfUseOnly = desc.includes('change of use') && !containsAny(desc,['extension','construction','extend','alteration','alterations'])
+  // Checked before the one-off-house heuristic below: an extension/alteration application can
+  // have NumResidentialUnits recorded as 1 by some local authorities (the same field-quality
+  // issue behind other odd zero/one values in this dataset), which previously meant "extension
+  // to dwelling house" could get misread as a brand-new one-off house.
+  const extensionSignal = containsAny(blob,['extension','extend existing','rear extension','side extension','storey extension','alteration','alterations to','porch'])
+  const explicitNewDwelling = containsAny(blob,['one off house','one-off house','single dwelling','single house','new dwelling','construct a dwelling','construction of a house','construction of a dwelling','erection of a dwelling','erect a dwelling','erection of one dwelling'])
   let project = 'other', base = 25
-  if (oneOff || (units===1 && containsAny(blob,['house','dwelling'])) || containsAny(blob,['one off house','one-off house','single dwelling','single house','new dwelling','construct a dwelling','construction of a house','construction of a dwelling'])) { project='one_off_house'; base=78 }
+  if (oneOff || explicitNewDwelling || (units===1 && !extensionSignal && containsAny(blob,['house','dwelling']))) { project='one_off_house'; base=78 }
   else if (units >= 2 || containsAny(blob,['housing development','residential development','apartments','apartment block','dwellings','houses'])) { project='housing_development'; base=80 + Math.min(15, Math.floor(units/5)) }
-  else if (containsAny(blob,['extension','extend existing','rear extension','side extension','storey extension'])) { project='extension'; base=60 }
+  else if (extensionSignal) { project='extension'; base=60 }
   else if (containsAny(blob,['warehouse','industrial','commercial','retail','shop','office','hotel','school','creche','community centre'])) { project='commercial'; base=65 }
   else if (containsAny(blob,['agricultural','farm building','slatted shed','cattle','machinery shed'])) { project='agricultural'; base=62 }
   else if (containsAny(blob,['renovation','refurbishment','alterations','retrofit'])) { project='renovation'; base=55 }
@@ -85,21 +99,21 @@ export function classifyPlanning(a: AnyRow): Classification {
   else if (containsAny(`${decision} ${status}`, ['grant','conditional','permission granted','approved'])) { stage='granted'; base += 8 }
   else if (containsAny(status,['expired'])) stage='expired'
 
-  const ignored = containsAny(blob, hardIgnore) || pureRetention || refused || project === 'other' && base < 30
+  const ignored = containsAny(blob, hardIgnore) || isRetention || isChangeOfUseOnly || refused || project === 'other' && base < 30
   if (ignored) base = Math.min(base, 15)
   const categories = ignored ? [] : CATEGORY_RULES.filter(([,words]) => words.some(w=>blob.includes(w))).map(([c])=>c)
   if (!categories.length && !ignored) categories.push('General Merchant')
 
-  let low:number|null=null, high:number|null=null
-  if (project==='one_off_house') { low=35000; high=90000 }
-  else if (project==='housing_development') { const u=Math.max(2,units||2); low=u*25000; high=u*65000 }
-  else if (project==='extension') { low=8000; high=35000 }
-  else if (project==='commercial') { low=20000; high=150000 }
-  else if (project==='agricultural') { low=10000; high=70000 }
-  else if (project==='renovation') { low=8000; high=50000 }
-  else if (project==='ancillary') { low=3000; high=18000 }
+  let low:number|null=null, high:number|null=null, band:string|null=null
+  if (project==='one_off_house') { low=35000; high=90000; band='Medium' }
+  else if (project==='housing_development') { const u=Math.max(2,units||2); low=u*25000; high=u*65000; band=u>=10?'Very High':u>=5?'High':'Medium' }
+  else if (project==='extension') { low=8000; high=35000; band='Low' }
+  else if (project==='commercial') { low=20000; high=150000; band='High' }
+  else if (project==='agricultural') { low=10000; high=70000; band='Medium' }
+  else if (project==='renovation') { low=8000; high=50000; band='Medium' }
+  else if (project==='ancillary') { low=3000; high=18000; band='Low' }
   const reason = `${titleCase(project.replaceAll('_',' '))}; ${units ? `${units} residential unit${units===1?'':'s'}; `:''}${floor ? `${Math.round(floor)}m² recorded; `:''}${stage==='granted'?'permission appears granted; ':''}${ignored?'low merchant relevance':''}`.replace(/; $/,'')
-  return { project_type:project, relevance_score:Math.max(0,Math.min(100,base)), categories, ignored, low, high, reason, stage }
+  return { project_type:project, relevance_score:Math.max(0,Math.min(100,base)), categories, ignored, low, high, band, reason, stage }
 }
 
 function normalizeFeature(feature: AnyRow) {
@@ -147,6 +161,7 @@ function normalizeFeature(feature: AnyRow) {
     categories: c.categories,
     estimated_opportunity_low: c.low,
     estimated_opportunity_high: c.high,
+    estimated_opportunity_band: c.band,
     score_reason: c.reason,
     ignored: c.ignored,
     last_seen_at: new Date().toISOString(),
@@ -154,10 +169,10 @@ function normalizeFeature(feature: AnyRow) {
   }
 }
 
-async function fetchArcgisPage(offset:number) {
+async function fetchArcgisPage(offset:number, where='1=1', orderByFields='ReceivedDate DESC') {
   const p = new URLSearchParams({
-    f:'json', where:'1=1', outFields:'*', returnGeometry:'true', outSR:'4326',
-    orderByFields:'ReceivedDate DESC', resultOffset:String(offset), resultRecordCount:String(PAGE_SIZE)
+    f:'json', where, outFields:'*', returnGeometry:'true', outSR:'4326',
+    orderByFields, resultOffset:String(offset), resultRecordCount:String(PAGE_SIZE)
   })
   const r = await fetch(`${ARCGIS_LAYER}/query?${p}`, { headers:{'User-Agent':'TenderFinder-Planning/1.0'}, cache:'no-store' })
   if (!r.ok) throw new Error(`Planning API ${r.status}`)
@@ -220,15 +235,23 @@ export async function matchCommencements() {
   }
   return { checked:rows.length, matched }
 }
-export async function runPlanningIngestion(mode:'scheduled'|'full'='scheduled') {
+export async function runPlanningIngestion(mode:'scheduled'|'full'|'pending'='scheduled') {
   const admin=createAdminClient(); const started=new Date().toISOString()
   const {data:run}=await admin.from('planning_ingest_runs').insert({started_at:started,mode}).select('id').single()
   const runId=run?.id; let fetched=0,inserted=0,updated=0,relevant=0,ignored=0,pages=0; const errors:string[]=[]
   try {
-    const maxPages=mode==='full'?FULL_PAGES:NORMAL_PAGES
+    // 'scheduled'/'full' sweep the newest-received applications, which is right for catching new
+    // notices but structurally can't reach an application stuck awaiting a decision once enough
+    // newer applications have pushed it past the page window - "received -> further information
+    // requested -> decision months later" would otherwise quietly stop being refreshed. 'pending'
+    // targets exactly that gap: every application with no grant date yet, regardless of how long
+    // ago it was received (bounded by PENDING_LOOKBACK_DAYS so this can't grow unbounded forever).
+    const maxPages = mode==='full'?FULL_PAGES : mode==='pending'?PENDING_PAGES : NORMAL_PAGES
+    const where = mode==='pending' ? `GrantDate IS NULL AND ReceivedDate >= CURRENT_TIMESTAMP - INTERVAL '${PENDING_LOOKBACK_DAYS}' DAY` : '1=1'
+    const orderByFields = mode==='pending' ? 'ReceivedDate ASC' : 'ReceivedDate DESC'
     for(let p=0;p<maxPages;p++) {
       try {
-        const features=await fetchArcgisPage(p*PAGE_SIZE); pages++
+        const features=await fetchArcgisPage(p*PAGE_SIZE, where, orderByFields); pages++
         if (!features.length) break
         fetched += features.length
         const rows:any[]=[]
@@ -249,8 +272,10 @@ export async function runPlanningIngestion(mode:'scheduled'|'full'='scheduled') 
         if(features.length<PAGE_SIZE) break
       } catch(e:any) { errors.push(`page ${p+1}: ${e.message}`); if(p===0) throw e }
     }
+    // BCMS matching only needs to run on the 'scheduled'/'full' sweeps - a 'pending' sweep is
+    // purely about catching decision changes on old applications, not discovering new ones.
     let cm={checked:0,matched:0}
-    try { cm=await matchCommencements() } catch(e:any) { errors.push(`BCMS: ${e.message}`) }
+    if (mode!=='pending') { try { cm=await matchCommencements() } catch(e:any) { errors.push(`BCMS: ${e.message}`) } }
     if(runId) await admin.from('planning_ingest_runs').update({finished_at:new Date().toISOString(),fetched,inserted,updated,relevant,ignored,pages_scanned:pages,commencements_checked:cm.checked,commencements_matched:cm.matched,errors}).eq('id',runId)
     return {fetched,inserted,updated,relevant,ignored,pages,commencements:cm,errors}
   } catch(e:any) {

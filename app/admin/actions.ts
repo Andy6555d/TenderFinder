@@ -88,4 +88,5 @@ export async function clearTenderOverride(id: string) {
 
 export async function refreshPlanning() { await requireAdmin(); await runPlanningIngestion('scheduled'); revalidatePath('/admin'); revalidatePath('/planning'); revalidatePath('/opportunities') }
 export async function fullPlanningRefresh() { await requireAdmin(); await runPlanningIngestion('full'); revalidatePath('/admin'); revalidatePath('/planning'); revalidatePath('/opportunities') }
+export async function pendingPlanningRefresh() { await requireAdmin(); await runPlanningIngestion('pending'); revalidatePath('/admin'); revalidatePath('/planning'); revalidatePath('/opportunities') }
 export async function refreshCommencements() { await requireAdmin(); await matchCommencements(); revalidatePath('/admin'); revalidatePath('/planning'); revalidatePath('/opportunities') }

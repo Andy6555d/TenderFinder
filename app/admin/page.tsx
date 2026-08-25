@@ -1,7 +1,7 @@
 import { requireAdmin } from '@/lib/auth'
 import {
   approveMember, suspendMember, ingestNow, fastFullRefresh, reclassifyAll,
-  approveTender, rejectTender, clearTenderOverride, refreshPlanning, fullPlanningRefresh, refreshCommencements
+  approveTender, rejectTender, clearTenderOverride, refreshPlanning, fullPlanningRefresh, pendingPlanningRefresh, refreshCommencements
 } from './actions'
 
 // Fast Full Refresh is engineered to complete inside normal serverless limits, but this allows
@@ -55,7 +55,8 @@ export default async function Page() {
       <h2 className="section-title">Planning & Construction engine</h2>
       <section className="panel">
         <div className="summary-strip"><div><small>Relevant planning leads</small><strong>{planningCount ?? '—'}</strong></div><div><small>Starting soon</small><strong>{startingCount ?? '—'}</strong></div><div><small>Latest planning scan</small><strong>{planningRuns?.[0]?.fetched ?? '—'}</strong></div></div>
-        <div className="row-actions"><form action={refreshPlanning}><button className="btn btn-primary">Check newest planning</button></form><form action={fullPlanningRefresh}><button className="btn btn-secondary">Planning full refresh</button></form><form action={refreshCommencements}><button className="btn btn-ghost">Match commencements</button></form></div>
+        <div className="row-actions"><form action={refreshPlanning}><button className="btn btn-primary">Check newest planning</button></form><form action={fullPlanningRefresh}><button className="btn btn-secondary">Planning full refresh</button></form><form action={pendingPlanningRefresh}><button className="btn btn-secondary">Refresh pending decisions</button></form><form action={refreshCommencements}><button className="btn btn-ghost">Match commencements</button></form></div>
+        <p className="muted">"Refresh pending decisions" re-checks every application still awaiting a grant, regardless of how long ago it was received - this is what catches an application that's been sitting through a "further information requested" delay for months, which the newest-first scans above can't reach once it falls out of their window.</p>
         <p className="muted">The planning engine is independent of eTenders. Normal scans read the newest ArcGIS pages and then match recent BCMS commencement notices by normalized planning reference. Full refresh reads a larger recent slice; it does not download the entire national historical archive.</p>
       </section>
       <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Started</th><th>Mode</th><th>Fetched</th><th>New</th><th>Updated</th><th>Relevant</th><th>Ignored</th><th>Pages</th><th>BCMS checked</th><th>Matched</th></tr></thead><tbody>{(planningRuns || []).map((r:any)=><tr key={r.id}><td>{new Date(r.started_at).toLocaleString('en-IE')}</td><td>{r.mode}</td><td>{r.fetched}</td><td>{r.inserted}</td><td>{r.updated}</td><td>{r.relevant}</td><td>{r.ignored}</td><td>{r.pages_scanned}</td><td>{r.commencements_checked}</td><td>{r.commencements_matched}</td></tr>)}</tbody></table></div>

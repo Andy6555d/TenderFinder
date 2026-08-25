@@ -28,18 +28,25 @@ export async function sendPlanningAlerts() {
   if(!apiKey) return {sent:0,skipped:'RESEND_API_KEY not configured'}
   const admin=createAdminClient()
   const {data:profiles}=await admin.from('profiles').select('id,email,outlet_name,categories,min_relevance_score,branch_latitude,branch_longitude,planning_radius_km,notify_planning').eq('status','approved').eq('notify_planning',true)
-  // Fetch broadly and let each member's own min_relevance_score do the real filtering below -
-  // this used to hardcode >=20 here too, which silently ignored anyone who'd set a lower threshold.
-  const {data:leads}=await admin.from('planning_applications').select('*').eq('ignored',false).gte('relevance_score',1).in('project_stage',['watch','granted','starting_soon','active']).order('last_seen_at',{ascending:false}).limit(2500)
   let sent=0, delivered=0
   for(const p of profiles||[]){
     const {data:already}=await admin.from('planning_alert_deliveries').select('planning_id,alert_kind').eq('user_id',p.id)
     const done=new Set((already||[]).map((x:any)=>`${x.planning_id}:${x.alert_kind}`))
-    const candidates=(leads||[]).map((l:any)=>{
+    const hasBranch=p.branch_latitude!=null&&p.branch_longitude!=null
+    // Per-member RPC call: distance filtering happens inside the database before any limit is
+    // applied, so a member's genuinely nearby lead can never be excluded by national volume -
+    // this used to fetch a flat 2,500-row national pool first and filter distance afterward,
+    // which silently missed leads once total relevant volume passed that cap (it regularly does).
+    const {data:nearby}=await admin.rpc('nearby_planning_leads',{
+      p_lat: hasBranch?Number(p.branch_latitude):null, p_lon: hasBranch?Number(p.branch_longitude):null,
+      p_radius_km: Number(p.planning_radius_km||30), p_min_score: p.min_relevance_score||20,
+      p_stages: ['watch','granted','starting_soon','active'], p_search: null, p_type: null, p_sort: 'score', p_limit: 50
+    })
+    const candidates=(nearby||[]).map((l:any)=>{
       const kind=l.commencement_matched_at?'commencement':'new'
-      const dist=p.branch_latitude!=null&&p.branch_longitude!=null&&l.latitude!=null&&l.longitude!=null?distanceKm(Number(p.branch_latitude),Number(p.branch_longitude),Number(l.latitude),Number(l.longitude)):null
+      const dist=hasBranch&&l.latitude!=null&&l.longitude!=null?distanceKm(Number(p.branch_latitude),Number(p.branch_longitude),Number(l.latitude),Number(l.longitude)):null
       return {...l,_kind:kind,_distance:dist}
-    }).filter((l:any)=>!done.has(`${l.id}:${l._kind}`) && l.relevance_score>=(p.min_relevance_score||20) && (!p.categories?.length||l.categories?.some((c:string)=>p.categories.includes(c))) && (l._distance==null||l._distance<=Number(p.planning_radius_km||30)))
+    }).filter((l:any)=>!done.has(`${l.id}:${l._kind}`) && (!p.categories?.length||l.categories?.some((c:string)=>p.categories.includes(c))))
       .sort((a:any,b:any)=>(a._kind==='commencement'?0:1)-(b._kind==='commencement'?0:1)||b.relevance_score-a.relevance_score)
       .slice(0,12)
     if(!candidates.length) continue

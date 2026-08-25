@@ -15,7 +15,7 @@ export type PlanningLead = {
   applicant_address:string|null; agent_name:string|null; agent_company:string|null; site_area:number|null; floor_area:number|null;
   residential_units:number|null; one_off_house:boolean|null; received_date:string|null; decision_date:string|null; grant_date:string|null; expiry_date:string|null;
   latitude:number|null; longitude:number|null; source_url:string|null; project_type:string; relevance_score:number; categories:string[];
-  estimated_opportunity_low:number|null; estimated_opportunity_high:number|null; score_reason:string|null; ignored:boolean;
+  estimated_opportunity_low:number|null; estimated_opportunity_high:number|null; estimated_opportunity_band:string|null; score_reason:string|null; ignored:boolean;
   commencement_number:string|null; commencement_date:string|null; commencement_status:string|null; commencement_source_url:string|null;
   first_seen_at:string; last_seen_at:string; distance_km?:number|null
 }

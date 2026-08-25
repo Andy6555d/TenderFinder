@@ -20,7 +20,7 @@ export default function PlanningCard({lead}:{lead:PlanningLead}){
       <p className="desc">{lead.development_description?.slice(0,260) || 'Open the lead for planning details.'}</p>
       <div className="facts">
         <span><b>{hot?'Commencement':'Granted'}</b>{hot?d(lead.commencement_date):d(lead.grant_date||lead.decision_date)}</span>
-        <span><b>Opportunity estimate</b>{lead.estimated_opportunity_low!=null?`${euro(lead.estimated_opportunity_low)}–${euro(lead.estimated_opportunity_high)} (est.)`:'Not estimated'}</span>
+        <span><b>Opportunity scale</b>{lead.estimated_opportunity_band?`${lead.estimated_opportunity_band} (indicative ${euro(lead.estimated_opportunity_low)}–${euro(lead.estimated_opportunity_high)})`:'Not estimated'}</span>
         <span><b>Residential units</b>{lead.residential_units ?? (lead.one_off_house?1:'—')}</span>
       </div>
     </div>

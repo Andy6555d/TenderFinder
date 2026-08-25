@@ -1,6 +1,7 @@
 {
   "crons": [
     { "path": "/api/cron/ingest", "schedule": "15 * * * *" },
-    { "path": "/api/cron/planning", "schedule": "35 5 * * *" }
+    { "path": "/api/cron/planning", "schedule": "35 5 * * *" },
+    { "path": "/api/cron/planning-pending", "schedule": "20 4 * * 0" }
   ]
 }

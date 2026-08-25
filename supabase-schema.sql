@@ -306,6 +306,7 @@ create table if not exists public.planning_applications (
   categories text[] not null default '{}',
   estimated_opportunity_low numeric,
   estimated_opportunity_high numeric,
+  estimated_opportunity_band text,
   score_reason text,
   ignored boolean not null default false,
   commencement_number text,
