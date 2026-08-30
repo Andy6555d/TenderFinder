@@ -1,5 +1,6 @@
 import { requireMember } from '@/lib/auth'
 import { uploadDocument, deleteDocument } from './actions'
+import SubmitButton from '@/components/SubmitButton'
 
 const SUGGESTED_LABELS = [
   'Tax Clearance Certificate',
@@ -66,7 +67,7 @@ export default async function Page() {
             <label>File *</label>
             <input name="file" type="file" accept=".pdf,.doc,.docx" required />
           </div>
-          <button className="btn btn-primary">Upload</button>
+          <SubmitButton className="btn btn-primary" pendingLabel="Uploading…" doneLabel="Uploaded">Upload</SubmitButton>
         </form>
       </div>
 
@@ -91,7 +92,7 @@ export default async function Page() {
                     {doc.url && <a className="btn btn-ghost btn-sm" href={doc.url} target="_blank" rel="noreferrer">View</a>}
                     <form action={deleteDocument}>
                       <input type="hidden" name="id" value={doc.id} />
-                      <button className="btn btn-danger btn-sm">Delete</button>
+                      <SubmitButton className="btn btn-danger btn-sm" pendingLabel="Deleting…" doneLabel="Deleted">Delete</SubmitButton>
                     </form>
                   </div>
                 </div>

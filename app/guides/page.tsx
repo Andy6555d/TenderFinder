@@ -9,7 +9,8 @@ export default function Page() {
       </div>
 
       <nav className="guide-nav">
-        <a href="#how-to-use">How to use this tool</a>
+        <a href="#how-to-use">How to use eTenders opportunities</a>
+        <a href="#planning-how-to">How to use Planning & Construction</a>
         <a href="#faq">FAQ</a>
         <a href="#pricing">How to price a tender</a>
         <a href="#etenders">How to use eTenders</a>
@@ -17,7 +18,7 @@ export default function Page() {
       </nav>
 
       <section id="how-to-use" className="panel section-title">
-        <h2>How to use this tool</h2>
+        <h2>How to use eTenders opportunities</h2>
         <p>UH Tender Finder checks eTenders automatically and only shows you public tenders that are (a) marked as pure supply contracts, not works or services, and (b) actually relevant to a builders/heating merchant. You shouldn't need to wade through fencing repairs or IT consultancy contracts to find the handful that matter.</p>
 
         <h3>Reading the opportunity list</h3>
@@ -38,6 +39,31 @@ export default function Page() {
 
         <h3>Alerts</h3>
         <p>In Preferences you can set which categories you care about and your minimum match score. If email alerts are switched on, you'll get notified when something new clears your bar, rather than needing to check the site yourself every day.</p>
+      </section>
+
+      <section id="planning-how-to" className="panel section-title">
+        <h2>How to use Planning & Construction</h2>
+        <p>This is a separate lead engine from eTenders. Instead of public procurement notices, it reads Ireland's national planning register and matches it against building commencement notices, to surface private construction work before it's even put out to a builder, let alone a merchant.</p>
+
+        <h3>Set your branch first</h3>
+        <p>Go to <strong>Preferences</strong> and enter your branch address and Eircode. This is located automatically, you don't need to know or look up coordinates yourself. Until a branch is set, the Planning page shows results from the whole country, which is rarely useful, so this is the first thing worth doing before the rest of this page means much.</p>
+
+        <h3>Reading a planning card</h3>
+        <ul>
+          <li><strong>Match score</strong> &mdash; same idea as eTenders: a rough 0&ndash;100 relevance estimate, not a guarantee.</li>
+          <li><strong>Stage badge</strong> &mdash; <em>Watch</em> means the application is still awaiting a decision. <em>Granted</em> means permission has been given but nothing's confirmed as started. <em>Starting soon</em> means a building commencement notice has been matched with a start date in the near future, the strongest signal on this page. <em>Active</em> means commencement has already begun.</li>
+          <li><strong>Distance</strong> &mdash; only shows once your branch is set, and only within the radius you've chosen.</li>
+          <li><strong>Opportunity scale</strong> &mdash; a rough Low/Medium/High/Very High indication of likely job size based on project type, with an indicative euro range alongside it. This is a broad estimate, not a calculated valuation, treat it as a sorting aid, not a number to plan around.</li>
+        </ul>
+
+        <h3>The search box is text only</h3>
+        <p>It searches the address, description and planning reference of applications, it does not change your location. Typing a county or town name into it filters by whether that word appears in the record, it doesn't move your branch or your search radius. To change where "nearby" means, use the radius dropdown, or update your branch address in Preferences.</p>
+
+        <h3>Filtering and sorting</h3>
+        <p>Stage, project type, and radius (once a branch is set) all combine. Sort by "Best opportunities" for a balanced default, "Highest score" to prioritise relevance over recency, or "Nearest first" once you have a branch set and actually want to work outward from your own door.</p>
+
+        <h3>Adding what you know</h3>
+        <p>Official planning records often don't include builder or developer contact details. Rather than guess or fabricate one, this tool leaves it honestly blank and lets you add your own contact notes on any lead, private to your account only. If you know who's involved in a job, that's the most valuable thing you can add here.</p>
       </section>
 
       <section id="faq" className="panel section-title">
@@ -69,6 +95,14 @@ export default function Page() {
 
         <details><summary>A tender looks miscategorised or shouldn't be showing. What do I do?</summary>
           <p>Flag it to your administrator. The categorisation is automated and occasionally gets something wrong, particularly on unusually worded notices.</p>
+        </details>
+
+        <details><summary>I typed my county into the Planning search box but I'm still not seeing local results. Why?</summary>
+          <p>The search box on the Planning page is a text search over addresses and descriptions, it doesn't set your location. Distance filtering comes entirely from the branch address saved in Preferences, plus the radius dropdown on the Planning page itself. Clear the search box, check your branch address is actually set correctly in Preferences, and try again.</p>
+        </details>
+
+        <details><summary>Why is Planning showing leads from the whole country instead of near me?</summary>
+          <p>This happens when no branch location is set yet, or when the address given couldn't be automatically located. Go to Preferences and enter a full address including your county, that's usually enough for it to resolve on its own.</p>
         </details>
       </section>
 

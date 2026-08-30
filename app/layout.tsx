@@ -1,8 +1,11 @@
 import './globals.css'
 import Link from 'next/link'
 import { Newsreader, Inter, IBM_Plex_Mono } from 'next/font/google'
+
+
 import { createClient } from '@/lib/supabase/server'
 import { logout } from './actions'
+import SubmitButton from '@/components/SubmitButton'
 
 // Type system grounded in what this product actually is: official public records (eTenders,
 // national planning, BCMS) turned into a usable register. Newsreader carries the "record of
@@ -21,7 +24,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   if (user) { const r = await supabase.from('profiles').select('outlet_name,is_admin,status').eq('id', user.id).maybeSingle(); profile = r.data }
   return <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}><body>
     <header><div className="wrap header-inner"><Link className="logo" href={profile?.status === 'approved' ? '/opportunities' : '/'}><span className="logo-mark">TF</span><span>UH Tender Finder</span></Link>
-      {profile?.status === 'approved' && <><nav><Link href="/opportunities">Home</Link><Link href="/dashboard">eTenders</Link><Link href="/planning">Planning</Link><Link href="/saved">Saved</Link><Link href="/pricing">Pricing</Link><Link href="/documents">Documents</Link><Link href="/preferences">Alerts</Link><Link href="/guides">Help</Link>{profile?.is_admin && <Link href="/admin">Admin</Link>}</nav><div className="header-actions"><span className="nav-outlet">{profile.outlet_name}</span><form action={logout}><button className="logout-btn">Log out</button></form></div></>}
+      {profile?.status === 'approved' && <><nav><Link href="/opportunities">Home</Link><Link href="/dashboard">eTenders</Link><Link href="/planning">Planning</Link><Link href="/saved">Saved</Link><Link href="/pricing">Pricing</Link><Link href="/documents">Documents</Link><Link href="/preferences">Alerts</Link><Link href="/guides">Help</Link>{profile?.is_admin && <Link href="/admin">Admin</Link>}</nav><div className="header-actions"><span className="nav-outlet">{profile.outlet_name}</span><form action={logout}><SubmitButton className="logout-btn" pendingLabel="Logging out…">Log out</SubmitButton></form></div></>}
     </div></header>
     <main>{children}</main>
     <footer>

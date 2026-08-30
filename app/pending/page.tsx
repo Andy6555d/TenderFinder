@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { logout } from '@/app/actions'
+import SubmitButton from '@/components/SubmitButton'
 
 export default async function Page() {
   const s = createClient()
@@ -21,7 +22,7 @@ export default async function Page() {
           If you just signed up, try refreshing in a moment. Otherwise, your access may have been
           paused — contact your administrator if you believe this is a mistake.
         </p>
-        <form action={logout}><button className="btn btn-secondary">Log out</button></form>
+        <form action={logout}><SubmitButton className="btn btn-secondary" pendingLabel="Logging out…">Log out</SubmitButton></form>
       </div>
     </div>
   )

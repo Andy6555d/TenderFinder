@@ -1,4 +1,5 @@
 import { requireAdmin } from '@/lib/auth'
+import SubmitButton from '@/components/SubmitButton'
 import {
   approveMember, suspendMember, ingestNow, fastFullRefresh, reclassifyAll,
   approveTender, rejectTender, clearTenderOverride, refreshPlanning, fullPlanningRefresh, pendingPlanningRefresh, refreshCommencements
@@ -34,9 +35,9 @@ export default async function Page() {
           <p className="sub">Member approval, fast live-catalogue indexing, ingestion health and tender review.</p>
         </div>
         <div className="row-actions">
-          <form action={fastFullRefresh}><button className="btn btn-primary">Fast full refresh</button></form>
-          <form action={ingestNow}><button className="btn btn-secondary">Check newest now</button></form>
-          <form action={reclassifyAll}><button className="btn btn-ghost">Reclassify stored tenders</button></form>
+          <form action={fastFullRefresh}><SubmitButton className="btn btn-primary" pendingLabel="Refreshing…" doneLabel="Done">Fast full refresh</SubmitButton></form>
+          <form action={ingestNow}><SubmitButton className="btn btn-secondary" pendingLabel="Checking…" doneLabel="Done">Check newest now</SubmitButton></form>
+          <form action={reclassifyAll}><SubmitButton className="btn btn-ghost" pendingLabel="Reclassifying…" doneLabel="Done">Reclassify stored tenders</SubmitButton></form>
         </div>
       </div>
 
@@ -55,7 +56,7 @@ export default async function Page() {
       <h2 className="section-title">Planning & Construction engine</h2>
       <section className="panel">
         <div className="summary-strip"><div><small>Relevant planning leads</small><strong>{planningCount ?? '—'}</strong></div><div><small>Starting soon</small><strong>{startingCount ?? '—'}</strong></div><div><small>Latest planning scan</small><strong>{planningRuns?.[0]?.fetched ?? '—'}</strong></div></div>
-        <div className="row-actions"><form action={refreshPlanning}><button className="btn btn-primary">Check newest planning</button></form><form action={fullPlanningRefresh}><button className="btn btn-secondary">Planning full refresh</button></form><form action={pendingPlanningRefresh}><button className="btn btn-secondary">Refresh pending decisions</button></form><form action={refreshCommencements}><button className="btn btn-ghost">Match commencements</button></form></div>
+        <div className="row-actions"><form action={refreshPlanning}><SubmitButton className="btn btn-primary" pendingLabel="Checking…" doneLabel="Done">Check newest planning</SubmitButton></form><form action={fullPlanningRefresh}><SubmitButton className="btn btn-secondary" pendingLabel="Refreshing…" doneLabel="Done">Planning full refresh</SubmitButton></form><form action={pendingPlanningRefresh}><SubmitButton className="btn btn-secondary" pendingLabel="Refreshing…" doneLabel="Done">Refresh pending decisions</SubmitButton></form><form action={refreshCommencements}><SubmitButton className="btn btn-ghost" pendingLabel="Matching…" doneLabel="Done">Match commencements</SubmitButton></form></div>
         <p className="muted">"Refresh pending decisions" re-checks every application still awaiting a grant, regardless of how long ago it was received - this is what catches an application that's been sitting through a "further information requested" delay for months, which the newest-first scans above can't reach once it falls out of their window.</p>
         <p className="muted">The planning engine is independent of eTenders. Normal scans read the newest ArcGIS pages and then match recent BCMS commencement notices by normalized planning reference. Full refresh reads a larger recent slice; it does not download the entire national historical archive.</p>
       </section>
@@ -63,7 +64,7 @@ export default async function Page() {
 
       <h2 className="section-title">Members</h2>
       <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Outlet</th><th>Email</th><th>Status</th><th>Action</th></tr></thead><tbody>
-        {(profiles || []).map((p: any) => <tr key={p.id}><td>{p.outlet_name}{p.is_admin && <span className="badge">ADMIN</span>}</td><td>{p.email}</td><td>{p.status}</td><td>{p.status !== 'approved' ? <form action={approveMember.bind(null, p.id)}><button className="btn btn-sm btn-primary">Approve</button></form> : !p.is_admin ? <form action={suspendMember.bind(null, p.id)}><button className="btn btn-sm btn-danger">Suspend</button></form> : null}</td></tr>)}
+        {(profiles || []).map((p: any) => <tr key={p.id}><td>{p.outlet_name}{p.is_admin && <span className="badge">ADMIN</span>}</td><td>{p.email}</td><td>{p.status}</td><td>{p.status !== 'approved' ? <form action={approveMember.bind(null, p.id)}><SubmitButton className="btn btn-sm btn-primary" pendingLabel="Approving…" doneLabel="Approved">Approve</SubmitButton></form> : !p.is_admin ? <form action={suspendMember.bind(null, p.id)}><SubmitButton className="btn btn-sm btn-danger" pendingLabel="Suspending…" doneLabel="Suspended">Suspend</SubmitButton></form> : null}</td></tr>)}
       </tbody></table></div>
 
       <h2 className="section-title">Ingestion runs</h2>
@@ -82,9 +83,9 @@ export default async function Page() {
           <td><b>{t.supply_only_status}</b><br/><small>{t.supply_only_reason}</small><br/><small>{t.classifier_version}</small></td>
           <td>{t.admin_override}</td>
           <td><div className="row-actions">
-            <form action={approveTender.bind(null, t.id)}><button className="btn btn-sm btn-primary">Approve</button></form>
-            <form action={rejectTender.bind(null, t.id)}><button className="btn btn-sm btn-danger">Reject</button></form>
-            {t.admin_override !== 'none' && <form action={clearTenderOverride.bind(null, t.id)}><button className="btn btn-sm btn-ghost">Auto</button></form>}
+            <form action={approveTender.bind(null, t.id)}><SubmitButton className="btn btn-sm btn-primary" pendingLabel="Approving…" doneLabel="Approved">Approve</SubmitButton></form>
+            <form action={rejectTender.bind(null, t.id)}><SubmitButton className="btn btn-sm btn-danger" pendingLabel="Rejecting…" doneLabel="Rejected">Reject</SubmitButton></form>
+            {t.admin_override !== 'none' && <form action={clearTenderOverride.bind(null, t.id)}><SubmitButton className="btn btn-sm btn-ghost" pendingLabel="Resetting…" doneLabel="Reset">Auto</SubmitButton></form>}
           </div></td>
         </tr>)}
       </tbody></table></div>

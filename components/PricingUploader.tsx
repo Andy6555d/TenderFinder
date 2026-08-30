@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import * as XLSX from 'xlsx'
+import SubmitButton from '@/components/SubmitButton'
 
 type Row = { description: string; quantity: string; unit: string; merchant_sku: string; cost: string; sell: string; notes: string }
 
@@ -117,7 +118,7 @@ export default function PricingUploader({ tenderId, saveAction }: { tenderId: st
       </div>
       <div className="row-actions">
         <button type="button" className="btn btn-ghost" onClick={add}>+ Add line</button>
-        <button className="btn btn-primary">Save private pricing sheet</button>
+        <SubmitButton className="btn btn-primary" pendingLabel="Saving…" doneLabel="Saved">Save private pricing sheet</SubmitButton>
       </div>
     </form>
   )

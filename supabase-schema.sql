@@ -387,10 +387,22 @@ using(user_id=auth.uid()) with check(user_id=auth.uid() and public.is_approved_m
 create policy "Own planning contacts" on public.planning_contacts for all to authenticated
 using(user_id=auth.uid()) with check(user_id=auth.uid() and public.is_approved_member());
 
+create or replace function public.set_my_planning_location(
+  p_county text, p_latitude double precision, p_longitude double precision, p_radius_km integer
+) returns void language plpgsql security definer set search_path=public as $$
+begin
+  if auth.uid() is null then raise exception 'Not authenticated'; end if;
+  update public.profiles set
+    branch_address = nullif(trim(coalesce(p_county,'')),''),
+    branch_latitude = case when p_latitude between -90 and 90 then p_latitude else null end,
+    branch_longitude = case when p_longitude between -180 and 180 then p_longitude else null end,
+    planning_radius_km = greatest(5,least(100,coalesce(p_radius_km,30)))
+  where id = auth.uid();
+end; $$;
+grant execute on function public.set_my_planning_location(text,double precision,double precision,integer) to authenticated;
+
 create or replace function public.update_my_opportunity_preferences(
-  p_categories text[], p_notify_email boolean, p_min_relevance_score integer,
-  p_branch_address text, p_branch_eircode text, p_branch_latitude double precision,
-  p_branch_longitude double precision, p_planning_radius_km integer, p_notify_planning boolean
+  p_categories text[], p_notify_email boolean, p_min_relevance_score integer, p_notify_planning boolean
 ) returns void language plpgsql security definer set search_path=public as $$
 begin
   if auth.uid() is null then raise exception 'Not authenticated'; end if;
@@ -398,12 +410,7 @@ begin
     categories=coalesce(p_categories,'{}'::text[]),
     notify_email=coalesce(p_notify_email,false),
     min_relevance_score=greatest(0,least(100,coalesce(p_min_relevance_score,20))),
-    branch_address=nullif(trim(coalesce(p_branch_address,'')),''),
-    branch_eircode=nullif(upper(trim(coalesce(p_branch_eircode,''))),''),
-    branch_latitude=case when p_branch_latitude between -90 and 90 then p_branch_latitude else null end,
-    branch_longitude=case when p_branch_longitude between -180 and 180 then p_branch_longitude else null end,
-    planning_radius_km=greatest(5,least(100,coalesce(p_planning_radius_km,30))),
     notify_planning=coalesce(p_notify_planning,true)
   where id=auth.uid();
 end; $$;
-grant execute on function public.update_my_opportunity_preferences(text[],boolean,integer,text,text,double precision,double precision,integer,boolean) to authenticated;
+grant execute on function public.update_my_opportunity_preferences(text[],boolean,integer,boolean) to authenticated;
