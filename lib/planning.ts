@@ -116,6 +116,18 @@ export function classifyPlanning(a: AnyRow): Classification {
   return { project_type:project, relevance_score:Math.max(0,Math.min(100,base)), categories, ignored, low, high, band, reason, stage }
 }
 
+// The ArcGIS service's own metadata declares its native spatial reference as 102100 (3857) -
+// Web Mercator - and ignores the outSR=4326 reprojection request below regardless of what's
+// asked for. Every coordinate this service returns is genuinely in Web Mercator meters, not
+// WGS84 degrees, so it has to be converted here rather than trusted as-is. Verified directly
+// against a real feature: raw x/y of roughly (-766691, 6931522) is Carlow, Ireland, not a
+// literal latitude of six million degrees.
+function webMercatorToWgs84(x: number, y: number) {
+  const lon = x / 20037508.34 * 180
+  const lat = 180 / Math.PI * (2 * Math.atan(Math.exp(y / 20037508.34 * Math.PI)) - Math.PI / 2)
+  return { lat, lon }
+}
+
 function normalizeFeature(feature: AnyRow) {
   const a = feature.attributes || feature
   const c = classifyPlanning(a)
@@ -125,8 +137,15 @@ function normalizeFeature(feature: AnyRow) {
   const auth = text(pick(a,'PlanningAuthority','LocalAuthority','planning_authority')) || null
   const oid = Number(pick(a,'OBJECTID','ObjectId','FID','source_object_id'))
   if (!Number.isFinite(oid)) throw new Error('Planning feature has no numeric OBJECTID')
-  const lat = number(pick(a,'Latitude','LAT','lat')) ?? number(geometry.y)
-  const lon = number(pick(a,'Longitude','LNG','lng')) ?? number(geometry.x)
+  // Attribute-based lat/lon (if this service or a future one ever actually publishes it) is
+  // only trusted when it's genuinely in valid degree range - otherwise this falls through to
+  // converting the geometry's raw Web Mercator x/y, which is what this service actually returns.
+  const attrLat = number(pick(a,'Latitude','LAT','lat'))
+  const attrLon = number(pick(a,'Longitude','LNG','lng'))
+  const validAttr = attrLat!=null && attrLon!=null && Math.abs(attrLat)<=90 && Math.abs(attrLon)<=180
+  const converted = !validAttr && geometry.x!=null && geometry.y!=null ? webMercatorToWgs84(Number(geometry.x), Number(geometry.y)) : null
+  const lat = validAttr ? attrLat : converted?.lat ?? null
+  const lon = validAttr ? attrLon : converted?.lon ?? null
   const direct = text(pick(a,'LinkAppDetails','ApplicationLink','ApplicationURL','Link','URL','source_url')).replace('http://www.eplanning.ie','https://www.eplanning.ie')
   return {
     source_object_id: oid,
