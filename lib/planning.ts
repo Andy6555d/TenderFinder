@@ -140,10 +140,14 @@ function normalizeFeature(feature: AnyRow) {
   // Attribute-based lat/lon (if this service or a future one ever actually publishes it) is
   // only trusted when it's genuinely in valid degree range - otherwise this falls through to
   // converting the geometry's raw Web Mercator x/y, which is what this service actually returns.
+  // (0,0) is deliberately excluded even though it's technically in-range: this dataset has no
+  // real Latitude/Longitude attribute fields, so pick() returns null for them, and Number(null)
+  // is 0 in JavaScript - a real bug that made every row silently resolve to (0,0) instead of
+  // falling through to the correct geometry conversion below.
   const attrLat = number(pick(a,'Latitude','LAT','lat'))
   const attrLon = number(pick(a,'Longitude','LNG','lng'))
-  const validAttr = attrLat!=null && attrLon!=null && Math.abs(attrLat)<=90 && Math.abs(attrLon)<=180
-  const converted = !validAttr && geometry.x!=null && geometry.y!=null ? webMercatorToWgs84(Number(geometry.x), Number(geometry.y)) : null
+  const validAttr = attrLat!=null && attrLon!=null && Math.abs(attrLat)<=90 && Math.abs(attrLon)<=180 && !(attrLat===0 && attrLon===0)
+  const converted = !validAttr && geometry.x!=null && geometry.y!=null && !(Number(geometry.x)===0 && Number(geometry.y)===0) ? webMercatorToWgs84(Number(geometry.x), Number(geometry.y)) : null
   const lat = validAttr ? attrLat : converted?.lat ?? null
   const lon = validAttr ? attrLon : converted?.lon ?? null
   const direct = text(pick(a,'LinkAppDetails','ApplicationLink','ApplicationURL','Link','URL','source_url')).replace('http://www.eplanning.ie','https://www.eplanning.ie')
