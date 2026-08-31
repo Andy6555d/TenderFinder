@@ -6,6 +6,10 @@ import { Newsreader, Inter, IBM_Plex_Mono } from 'next/font/google'
 
 
 
+
+
+
+
 import { createClient } from '@/lib/supabase/server'
 import { logout } from './actions'
 import SubmitButton from '@/components/SubmitButton'

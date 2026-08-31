@@ -1,11 +1,14 @@
 import Link from 'next/link'
 import { requireMember } from '@/lib/auth'
 export default async function Page(){
-  const {supabase}=await requireMember(); const now=new Date().toISOString()
+  const {supabase,profile}=await requireMember(); const now=new Date().toISOString()
+  // eTenders count shows everything, unfiltered by score - matches the dashboard's own "all
+  // scores by default" behaviour. Planning is left exactly as it was, unaffected by that change.
+  const min=Number(profile.min_relevance_score||20)
   const [{count:tenders},{count:planning},{count:starting}] = await Promise.all([
     supabase.from('tenders').select('*',{count:'exact',head:true}).eq('status','open').neq('admin_override','reject').or('supply_only_status.eq.eligible,admin_override.eq.approve').or(`deadline_at.is.null,deadline_at.gt.${now}`),
-    supabase.from('planning_applications').select('*',{count:'exact',head:true}).eq('ignored',false).gte('relevance_score',20).in('project_stage',['watch','granted','starting_soon','active']),
-    supabase.from('planning_applications').select('*',{count:'exact',head:true}).eq('ignored',false).gte('relevance_score',20).eq('project_stage','starting_soon')
+    supabase.from('planning_applications').select('*',{count:'exact',head:true}).eq('ignored',false).gte('relevance_score',min).in('project_stage',['watch','granted','starting_soon','active']),
+    supabase.from('planning_applications').select('*',{count:'exact',head:true}).eq('ignored',false).gte('relevance_score',min).eq('project_stage','starting_soon')
   ])
   return <div className="wrap page"><div className="page-head"><div><h1>Find opportunities</h1><p className="sub">Public tenders and private construction signals in one member tool.</p></div></div>
     <div className="source-grid">
