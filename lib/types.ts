@@ -17,5 +17,5 @@ export type PlanningLead = {
   latitude:number|null; longitude:number|null; source_url:string|null; project_type:string; relevance_score:number; categories:string[];
   estimated_opportunity_low:number|null; estimated_opportunity_high:number|null; estimated_opportunity_band:string|null; score_reason:string|null; ignored:boolean;
   commencement_number:string|null; commencement_date:string|null; commencement_status:string|null; commencement_source_url:string|null;
-  first_seen_at:string; last_seen_at:string; distance_km?:number|null
+  first_seen_at:string; last_seen_at:string
 }

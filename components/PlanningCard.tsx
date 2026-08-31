@@ -12,7 +12,6 @@ export default function PlanningCard({lead}:{lead:PlanningLead}){
       <div className="tender-top">
         <span className={`badge ${hot?'soon':'green'}`}>{hot?'STARTING SOON':lead.project_stage.replaceAll('_',' ').toUpperCase()}</span>
         <span className="badge">{projectLabel(lead.project_type)}</span>
-        {lead.distance_km!=null&&<span className="badge">{lead.distance_km.toFixed(1)} km away</span>}
         {lead.categories?.slice(0,3).map(c=><span className="badge" key={c}>{c}</span>)}
       </div>
       <h2><Link href={`/planning/${lead.id}`}>{lead.development_address || lead.development_description?.slice(0,95) || 'Planning opportunity'}</Link></h2>
