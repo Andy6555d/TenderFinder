@@ -16,6 +16,39 @@
     "plugins": [{ "name": "next" }],
     "paths": { "@/*": ["./*"] }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "next-env.d.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "lib/**/*.ts",
+    "lib/**/*.tsx",
+    "middleware.ts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "layout.tsx",
+    "page*.tsx",
+    "actions*.ts",
+    "admin.ts",
+    "alerts.ts",
+    "auth.ts",
+    "client.ts",
+    "constants.ts",
+    "etenders.ts",
+    "geocode.ts",
+    "irish-counties.ts",
+    "planning.ts",
+    "relevance.ts",
+    "server.ts",
+    "types.ts",
+    "BranchLocationFields.tsx",
+    "ExportPricing.tsx",
+    "PlanningCard.tsx",
+    "PricingUploader.tsx",
+    "SubmitButton.tsx",
+    "TenderCard.tsx"
+  ]
 }
