@@ -11,7 +11,7 @@ import { Newsreader, Inter, IBM_Plex_Mono } from 'next/font/google'
 
 
 import { createClient } from '@/lib/supabase/server'
-import { logout } from './actions'
+import { logout } from './logout-action'
 import SubmitButton from '@/components/SubmitButton'
 
 // Type system grounded in what this product actually is: official public records (eTenders,

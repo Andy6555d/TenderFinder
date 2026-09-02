@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { logout } from '@/app/actions'
+import { logout } from '@/app/logout-action'
 import SubmitButton from '@/components/SubmitButton'
 
 export default async function Page() {
