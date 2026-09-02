@@ -166,3 +166,13 @@ The national BCMS open dataset includes planning reference, project details and 
 ## Scheduled scans
 
 `vercel.json` keeps the hourly eTenders scan and adds a daily planning scan at 05:35 UTC. Normal planning scans inspect the newest configured pages; the admin full refresh reads a larger recent slice. This avoids repeatedly downloading the full national historical archive.
+
+## United Member Hub integration
+TenderFinder can automatically publish suitable eTender and planning opportunities into United Member Hub.
+
+Required Vercel environment variables on TenderFinder:
+- `UNITED_HUB_URL` — the deployed United Member Hub URL, e.g. `https://united-member-hub.vercel.app`
+- `UNITED_HUB_INGEST_API_KEY` — exactly the same secret value as `INGEST_API_KEY` on United Member Hub
+- `UNITED_HUB_MIN_RELEVANCE` — optional; defaults to `20`
+
+Automatic sync runs after the existing eTender and planning cron refreshes. For the first load, call the protected route `/api/cron/united-hub?full=1` with the same Bearer `CRON_SECRET` used by the other cron routes. Later calls can omit `full=1` to sync the last 48 hours only.

@@ -1,0 +1,3 @@
+'use client'
+import * as XLSX from 'xlsx'
+export default function ExportPricing({name,rows}:{name:string;rows:any[]}){function go(){const out=rows.map((r:any)=>({'Line':r.line_no,'Description':r.description,'Qty':r.quantity,'Unit':r.unit,'Merchant SKU':r.merchant_sku,'Cost':r.cost,'Sell':r.sell,'Margin %':r.sell?Number((((r.sell-r.cost)/r.sell)*100).toFixed(2)):'','Notes':r.notes}));const ws=XLSX.utils.json_to_sheet(out);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Pricing');XLSX.writeFile(wb,`${name.replace(/[^a-z0-9-_]+/gi,'_')}.xlsx`)}return <button className="btn btn-primary" onClick={go}>Export priced XLSX</button>}
